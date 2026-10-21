@@ -85,6 +85,23 @@ class SummaryWorkerTests(unittest.TestCase):
             code = worker.run(argparse.Namespace(db=str(self.path), max_items=max_items))
         return code, [json.loads(line) for line in output.getvalue().splitlines()]
 
+    def test_english_title_queues_even_with_short_chinese_body(self):
+        title = "Global emissions slow but warming continues"
+        item = {"title": title, "summary": "中文摘要仍需核实。", "body": "现有材料仍需要核验。" * 30, "category": "前沿科技", "level": "ordinary", "source_url": "https://www.nature.com/articles/chinese-queue-fixture"}
+        with self.database() as db:
+            collect.insert_gap(db, item)
+            self.assertEqual(collect.queue_summary(db, item, title + "\n" + item["body"]), 1)
+            job = db.execute("SELECT id FROM summary_jobs ORDER BY id DESC LIMIT 1").fetchone()[0]
+        def runner(payload):
+            value = self.successful(payload)
+            value["title_zh"] = "全球排放增速放缓但升温仍在继续"
+            return value
+        result = worker.process_job(self.path, job, runner)
+        self.assertEqual(result["status"], "completed")
+        with self.database() as db:
+            translated = db.execute("SELECT title,status FROM gaps WHERE source_url=?", (item["source_url"],)).fetchone()
+            self.assertEqual(translated, (title + "（全球排放增速放缓但升温仍在继续）", "pending"))
+
     def test_same_canonical_source_queues_once_without_replacing_original(self):
         item, gap_id, job = self.seed()
         before = self.row("summary_jobs", job)

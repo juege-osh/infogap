@@ -450,8 +450,8 @@ func (s *server) editGap(w http.ResponseWriter, r *http.Request) {
 	in.Title = strings.TrimSpace(in.Title)
 	in.Summary = strings.TrimSpace(in.Summary)
 	in.Body = strings.TrimSpace(in.Body)
-	if utf8.RuneCountInString(in.Title) < 8 || utf8.RuneCountInString(in.Title) > 120 || utf8.RuneCountInString(in.Summary) < 15 || utf8.RuneCountInString(in.Summary) > 300 || utf8.RuneCountInString(in.Body) < 80 || utf8.RuneCountInString(in.Body) > 15000 {
-		fail(w, 400, "标题需 8–120 字，摘要 15–300 字，正文 80–15000 字")
+	if utf8.RuneCountInString(in.Title) < 8 || utf8.RuneCountInString(in.Title) > 360 || utf8.RuneCountInString(in.Summary) < 15 || utf8.RuneCountInString(in.Summary) > 300 || utf8.RuneCountInString(in.Body) < 80 || utf8.RuneCountInString(in.Body) > 15000 {
+		fail(w, 400, "标题需 8–360 字，摘要 15–300 字，正文 80–15000 字")
 		return
 	}
 	if !has(categories, in.Category) || !has([]string{"peer_reviewed", "preprint", "official", "repository", "unverified"}, in.Evidence) {
