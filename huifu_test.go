@@ -24,7 +24,7 @@ func huifuSuccessData() map[string]any {
 }
 func TestHuifuNotificationRequiresAuthenticCompletePayment(t *testing.T) {
 	c := testHuifuClient(t)
-	variants := map[string]func(map[string]any){"valid": func(map[string]any) {}, "wrong_merchant": func(m map[string]any) { m["huifu_id"] = "other" }, "missing_order": func(m map[string]any) { delete(m, "org_req_seq_id") }, "missing_transaction": func(m map[string]any) { delete(m, "org_hf_seq_id") }, "missing_success_state": func(m map[string]any) { delete(m, "order_stat") }, "invalid_success_state": func(m map[string]any) { m["order_stat"] = "2" }, "nonfinal_status": func(m map[string]any) { m["trans_stat"] = "P" }}
+	variants := map[string]func(map[string]any){"valid": func(map[string]any) {}, "wrong_merchant": func(m map[string]any) { m["huifu_id"] = "other" }, "missing_order": func(m map[string]any) { delete(m, "org_req_seq_id") }, "missing_transaction": func(m map[string]any) { delete(m, "org_hf_seq_id") }, "optional_order_state": func(m map[string]any) { delete(m, "order_stat") }, "invalid_success_state": func(m map[string]any) { m["order_stat"] = "2" }, "nonfinal_status": func(m map[string]any) { m["trans_stat"] = "P" }}
 	for name, mutate := range variants {
 		t.Run(name, func(t *testing.T) {
 			data := huifuSuccessData()
@@ -32,7 +32,7 @@ func TestHuifuNotificationRequiresAuthenticCompletePayment(t *testing.T) {
 			raw, _ := json.Marshal(data)
 			sig, _ := signHuifuRaw(string(raw), c.privateKey)
 			_, e := c.VerifyNotification(string(raw), sig)
-			if (name == "valid") != (e == nil) {
+			if (name == "valid" || name == "optional_order_state") != (e == nil) {
 				t.Fatalf("unexpected verification %v", e)
 			}
 		})
@@ -50,7 +50,7 @@ func TestHuifuNotificationRequiresAuthenticCompletePayment(t *testing.T) {
 }
 func TestHuifuQueryChecksSignedMerchantOrderAmountAndState(t *testing.T) {
 	c := testHuifuClient(t)
-	variants := map[string]func(map[string]any){"valid": func(map[string]any) {}, "merchant": func(m map[string]any) { m["huifu_id"] = "other" }, "order": func(m map[string]any) { m["org_req_seq_id"] = "other" }, "missing_order": func(m map[string]any) { delete(m, "org_req_seq_id") }, "amount": func(m map[string]any) { m["trans_amt"] = "0.01" }, "zero_amount": func(m map[string]any) { m["trans_amt"] = "0.00" }, "state": func(m map[string]any) { m["order_stat"] = "2" }, "missing_state": func(m map[string]any) { delete(m, "order_stat") }, "missing_transaction": func(m map[string]any) { delete(m, "org_hf_seq_id") }}
+	variants := map[string]func(map[string]any){"valid": func(map[string]any) {}, "merchant": func(m map[string]any) { m["huifu_id"] = "other" }, "order": func(m map[string]any) { m["org_req_seq_id"] = "other" }, "missing_order": func(m map[string]any) { delete(m, "org_req_seq_id") }, "amount": func(m map[string]any) { m["trans_amt"] = "0.01" }, "zero_amount": func(m map[string]any) { m["trans_amt"] = "0.00" }, "state": func(m map[string]any) { m["order_stat"] = "2" }, "optional_order_state": func(m map[string]any) { delete(m, "order_stat") }, "missing_transaction": func(m map[string]any) { delete(m, "org_hf_seq_id") }}
 	for name, mutate := range variants {
 		t.Run(name, func(t *testing.T) {
 			data := huifuSuccessData()
@@ -75,7 +75,7 @@ func TestHuifuQueryChecksSignedMerchantOrderAmountAndState(t *testing.T) {
 			defer ts.Close()
 			c.baseURL, c.httpClient = ts.URL, ts.Client()
 			_, e := c.QueryPayment("P20261021IG12345678901234567890", 990)
-			if (name == "valid") != (e == nil) {
+			if (name == "valid" || name == "optional_order_state") != (e == nil) {
 				t.Fatalf("unexpected query validation %v", e)
 			}
 		})

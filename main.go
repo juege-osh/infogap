@@ -27,7 +27,7 @@ import (
 )
 
 const founderEmail = "1402272093@qq.com"
-const version = "1.0.6"
+const version = "1.0.7"
 
 var buildCommit = "dev"
 
@@ -406,6 +406,7 @@ func main() {
 	h := &http.Server{Addr: *addr, Handler: s.routes(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 45 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	go s.runPaymentReconciliation(ctx)
 	go func() {
 		<-ctx.Done()
 		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)

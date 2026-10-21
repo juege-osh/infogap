@@ -220,6 +220,9 @@ func (c *huifuPayClient) QueryPayment(paymentNo string, expectedAmountCents int6
 	if err != nil {
 		return huifuPaymentResult{}, err
 	}
+	if result.TransactionStatus != "S" && result.TransactionStatus != "F" && result.TransactionStatus != "P" {
+		return huifuPaymentResult{}, errors.New("汇付查单返回未知交易状态")
+	}
 	if result.TransactionStatus == "S" && result.OrderStatus != "1" {
 		return huifuPaymentResult{}, errors.New("汇付查单订单状态不是成功")
 	}
@@ -344,13 +347,23 @@ func huifuResultFromResponse(data map[string]any, raw string) (huifuPaymentResul
 	if err != nil {
 		return huifuPaymentResult{}, err
 	}
+	// Native scan query/notifications can omit order_stat. trans_stat is the
+	// final payment state; this parser is called only after response verification.
+	state := firstValue(data, "trans_stat")
+	if state == "I" {
+		state = "P"
+	}
+	orderState := firstValue(data, "order_stat")
+	if state == "S" && orderState == "" {
+		orderState = "1"
+	}
 	return huifuPaymentResult{
 		MerchantID:        stringValue(data["huifu_id"]),
 		PaymentNo:         firstValue(data, "org_req_seq_id", "req_seq_id", "mer_priv"),
 		PlatformTradeNo:   firstValue(data, "org_hf_seq_id", "hf_seq_id"),
-		TransactionStatus: firstValue(data, "trans_stat"),
+		TransactionStatus: state,
 		CloseStatus:       firstValue(data, "close_stat"),
-		OrderStatus:       firstValue(data, "order_stat"),
+		OrderStatus:       orderState,
 		TradeType:         firstValue(data, "pay_type", "trans_type", "trade_type"),
 		AmountCents:       amount,
 		JumpURL:           firstValue(data, "qr_code", "jump_url", "pay_info"),

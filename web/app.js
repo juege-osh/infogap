@@ -40,7 +40,7 @@ const dailyAllowances = [1,2,3,5,8,10,15,20,30,50];
 const unlockCosts = {ordinary:1,featured:2,rare:4,exclusive:8};
 const fallbackTiers = ['黑铁','青铜','白银','黄金','铂金','翡翠','钻石','大师','宗师','王者'].map((name,i)=>({name,min_points:[0,100,300,700,1400,2500,4000,6500,10000,15000][i],delay_hours:[72,48,24,12,6,3,1,0,0,0][i],daily_allowance:dailyAllowances[i]}));
 const state = {boot:null,user:null,view:'all',category:'',country:'',region:'',travelTopic:'',level:'',sort:'latest',q:'',page:1,items:[],total:0,routeID:0,adminTab:'queue',adminContentStatus:'all',adminContentPage:1,adminContentQuery:'',admin:null,billingOrder:null,authMode:'login',invite:new URLSearchParams(location.search).get('invite')||'',codeUntil:0};
-let toastTimer, searchTimer;
+let toastTimer, searchTimer, paymentPollTimer=null, paymentPollGeneration=0;
 
 function safeURL(value) { try { const url = new URL(String(value)); return ['https:','http:'].includes(url.protocol) ? url.href : ''; } catch { return ''; } }
 function dateText(value, long = false) { if (!value) return '时间待核对'; const date = new Date(value); if (Number.isNaN(date.getTime())) return '时间待核对'; return date.toLocaleDateString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',...(long?{hour:'2-digit',minute:'2-digit'}:{})}).replaceAll('/','.'); }
@@ -249,6 +249,7 @@ async function renderMembership(token){
     $('#membership-plans').innerHTML=`<form id="membership-form" class="panel billing-form"><fieldset class="billing-group"><legend>购买长期额度</legend><p class="billing-description">解锁普通 / 精选 / 稀有 / 独家详情分别需要 <strong>1 / 2 / 4 / 8 额度</strong>。每日赠额先抵扣，不足部分使用长期额度；已解锁详情重读不扣减。</p><div class="membership-plan-grid credit-plan-grid">${credits.length?credits.map(p=>billingPlanCard(p,p===first,ready)).join(''):'<p class="empty-inline">额度套餐暂未开放。</p>'}</div></fieldset><fieldset class="billing-group"><legend>效率会员</legend><p class="billing-description">可设置至少 <strong>20 条主题或标签订阅</strong>，整理自己的站内信息流。会员不附带阅读额度；段位提供的订阅更多时，沿用更高上限。</p>${u?.is_member?`<div class="callout">会员有效至 <strong>${dateText(u.membership_until,true)}</strong>。当前可配置 ${formatNumber(u.entitlements?.subscription_limit)} 条订阅。<a href="#subscriptions">管理订阅 →</a></div>`:''}<div class="membership-plan-grid">${memberships.length?memberships.map(p=>billingPlanCard(p,p===first,ready)).join(''):'<p class="empty-inline">会员套餐暂未开放。</p>'}</div><p class="tiny-note">已有会员续费会从当前到期时间延长。到期后按段位重新计算订阅上限，超出部分暂停并保留配置。</p></fieldset>${ready?`<div class="billing-payment"><p id="billing-selection" class="billing-selection" aria-live="polite">${first?`已选：${esc(first.name)} · ${money(first.amount_cents)} · ${esc(billingBenefit(first))}`:''}</p><div class="field payment-channel-field"><label for="payment-channel">付款方式</label><select id="payment-channel" name="channel">${channels.map(c=>`<option value="${esc(c)}">${paymentChannels[c]}</option>`).join('')}</select></div><p class="tiny-note">使用支付宝付款，服务器核验成功后入账或开通。请先确认所选套餐。</p></div>`:`<div class="callout">${esc(data.disabled_reason||'支付宝付款暂未开放，请稍后再来。')}</div>`}<div id="membership-error" class="form-error" role="alert"></div>${u?`<button class="btn primary" type="submit" ${!ready?'disabled':''}>${ready?'生成付款订单':'支付暂未开放'} ${icon('arrow',14)}</button>`:`<button type="button" class="btn primary" data-auth="login">登录后购买</button>`}</form>`;
   }else{$('#membership-plans').innerHTML=empty('额度与会员套餐暂时无法加载',result.reason.message,'<button class="btn" data-retry>重新加载</button>');}
   if(u){const orderResult=results[1];$('#membership-orders').innerHTML=orderResult.status==='fulfilled'?billingOrderList(orderResult.value.items||[]):`<p class="form-error">${esc(orderResult.reason.message)}</p>`;}
+  if(!state.billingOrder&&u&&results[1]?.status==='fulfilled')state.billingOrder=(results[1].value.items||[]).find(o=>o.status==='pending')||(results[1].value.items||[])[0]||null;
   if(state.billingOrder&&u)renderCheckout(state.billingOrder);
 }
 function billingOrderList(items){
@@ -258,6 +259,28 @@ async function loadBillingOrders(token=state.routeID){
   const target=$('#membership-orders');if(!target)return;
   try{const data=await api('/api/billing/orders');if(token===state.routeID&&target.isConnected)target.innerHTML=billingOrderList(data.items||[]);}catch(error){if(target.isConnected)target.innerHTML=`<p class="form-error">订单记录加载失败：${esc(error.message)}</p>`;}
 }
+function stopPaymentPolling(){if(paymentPollTimer!==null)clearTimeout(paymentPollTimer);paymentPollTimer=null;paymentPollGeneration++;}
+function startPaymentPolling(order){
+ stopPaymentPolling();if(order.status!=='pending'||typeof window.setTimeout!=='function')return;
+ const generation=paymentPollGeneration,routeID=state.routeID,id=order.id;let attempts=0;
+ const current=()=>generation===paymentPollGeneration&&routeID===state.routeID&&state.billingOrder?.id===id&&Boolean($('#membership-checkout'));
+ const schedule=()=>{if(current())paymentPollTimer=window.setTimeout(tick,5000);};
+ async function tick(){
+  if(!current())return;
+  if(document.visibilityState==='hidden'){schedule();return;}
+  if(++attempts>360){const message=$('#payment-status-message');if(message)message.textContent='自动核验已暂停，可点击“查询付款结果”继续核对。';return;}
+  try{const data=await api('/api/billing/orders/'+encodeURIComponent(id));if(!current())return;
+   if(data.order.status!=='pending'){
+    state.billingOrder=data.order;if(data.user)state.user=data.user;await refreshBoot();if(!current())return;
+    await renderCheckout(data.order);if(location.hash==='#diagnostics')await loadCentOrders();else await loadBillingOrders(routeID);
+    if(data.order.status==='success')toast(billingType(data.order)==='payment_test'?'1 分钱真实支付已确认':'付款已确认，账户权益已更新');return;
+   }
+   const message=$('#payment-status-message');if(message)message.textContent=data.message||'等待支付确认，页面会自动更新。';
+  }catch(error){if(current()){const message=$('#payment-status-message');if(message)message.textContent='暂时无法核对支付状态，将自动重试；请勿重复付款。';}}
+  schedule();
+ }
+ schedule();
+}
 async function renderCheckout(order){
   const el=$('#membership-checkout');if(!el)return;
   state.billingOrder=order;
@@ -266,10 +289,11 @@ async function renderCheckout(order){
   if(pending&&!expired&&payable&&order.payment_kind==='qr'&&order.qr_payload){
     try{if(!window.QRCode?.toCanvas)throw new Error('二维码组件未加载');await window.QRCode.toCanvas($('#payment-qr'),order.qr_payload,{width:224,margin:2,errorCorrectionLevel:'M',color:{dark:'#111111',light:'#ffffff'}});}catch(error){if(el.isConnected&&state.billingOrder?.id===order.id){const errorEl=$('#payment-qr-error');if(errorEl)errorEl.innerHTML=`付款码暂时无法显示，请重新加载页面后查询此订单。<details><summary>查看付款载荷</summary><textarea readonly rows="3" aria-label="原始付款载荷">${esc(order.qr_payload)}</textarea></details>`;}}
   }
+  startPaymentPolling(order);
 }
 async function checkBillingOrder(button,id){
   const token=state.routeID;
-  await busy(button,async()=>{const data=await api('/api/billing/orders/'+encodeURIComponent(id));if(token!==state.routeID)return;if(data.user)state.user=data.user;await refreshBoot();if(token!==state.routeID)return;await renderCheckout(data.order);if(location.hash==='#diagnostics')await loadCentOrders();else await loadBillingOrders(token);if(token!==state.routeID)return;const message=$('#payment-status-message');if(message)message.textContent=data.order.status==='success'?(billingType(data.order)==='payment_test'?'1 分钱真实支付已核验，未增加任何权益。':billingType(data.order)==='credits'?'支付核验完成，长期额度已更新。':'支付核验完成，会员权益已更新。'):data.order.status==='pending'?'暂未确认付款。如已完成，请稍后再次查询。':'订单状态已更新。';$('#membership-checkout')?.scrollIntoView({behavior:'smooth',block:'start'});});
+  await busy(button,async()=>{const data=await api('/api/billing/orders/'+encodeURIComponent(id));if(token!==state.routeID)return;if(data.user)state.user=data.user;await refreshBoot();if(token!==state.routeID)return;await renderCheckout(data.order);if(location.hash==='#diagnostics')await loadCentOrders();else await loadBillingOrders(token);if(token!==state.routeID)return;const message=$('#payment-status-message');if(message)message.textContent=data.order.status==='success'?(billingType(data.order)==='payment_test'?'1 分钱真实支付已核验，未增加任何权益。':billingType(data.order)==='credits'?'支付核验完成，长期额度已更新。':'支付核验完成，会员权益已更新。'):data.message||(data.order.status==='pending'?'暂未确认付款，页面会自动核对；请勿重复付款。':'订单状态已更新。');$('#membership-checkout')?.scrollIntoView({behavior:'smooth',block:'start'});});
 }
 
 async function renderAdmin(token){
@@ -317,7 +341,7 @@ async function renderDiagnostics(){
  $('#main').innerHTML=`<div class="eyebrow">DIAGNOSTICS / 功能自检</div><h1 class="page-title">功能自检</h1><p class="page-description">按功能单独检查，或一次检查完整流程。业务检查使用隔离数据，结果可复制留存。</p><div class="diagnostic-controls">${diagnosticGroups.map(([key,name])=>`<button class="btn ${key==='all'?'primary':''}" data-diagnostic="${key}">${name}</button>`).join('')}</div><div class="callout"><strong>支付自检使用模拟订单。</strong>会检查定价、渠道、核验与重复入账；真实扫码、到账和邮件收信需另行验证。</div><div id="diagnostic-results" aria-live="polite"><p class="empty-inline">选择一个项目开始检查。</p></div><section class="panel real-payment-test"><h2>1 分钱真实支付测试</h2><p class="page-description">生成真实支付宝付款码，扫码金额为 ¥0.01。付款只记入测试订单，不增加额度、会员或段位。</p>${state.user.test_mode?'<p class="callout">请先点击底部“返回管理员”，再进入这里测试真实付款。</p>':'<button class="btn primary" data-create-cent-order>生成 ¥0.01 支付宝付款码</button>'}<div id="cent-order-error" class="form-error" role="alert"></div><div id="membership-checkout" aria-live="polite"></div><h3>最近的真实测试订单</h3><div id="membership-orders">正在加载…</div></section>`;
  await loadCentOrders();if(state.billingOrder&&billingType(state.billingOrder)==='payment_test'&&!state.user.test_mode)await renderCheckout(state.billingOrder);
 }
-async function loadCentOrders(){const target=$('#membership-orders');if(!target)return;if(state.user?.test_mode){target.textContent='返回管理员模式后可查看真实测试订单。';return;}try{const data=await api('/api/billing/orders');if(target.isConnected)target.innerHTML=billingOrderList((data.items||[]).filter(o=>billingType(o)==='payment_test'));}catch(error){if(target.isConnected)target.textContent=error.message;}}
+async function loadCentOrders(){const target=$('#membership-orders');if(!target)return;if(state.user?.test_mode){target.textContent='返回管理员模式后可查看真实测试订单。';return;}try{const data=await api('/api/billing/orders');if(target.isConnected){const items=(data.items||[]).filter(o=>billingType(o)==='payment_test');target.innerHTML=billingOrderList(items);if(!state.billingOrder&&items[0])await renderCheckout(items[0]);}}catch(error){if(target.isConnected)target.textContent=error.message;}}
 async function runDiagnostic(button,group){
  const target=$('#diagnostic-results');if(!target)return;
  $$('.diagnostic-controls button').forEach(b=>b.disabled=true);target.innerHTML=loading();const token=state.routeID;
@@ -339,7 +363,7 @@ function closeMenu(){$('#sidebar').classList.remove('open');$('#sidebar-scrim').
 function setTheme(theme){document.documentElement.dataset.theme=theme;try{localStorage.setItem('infogap-theme',theme);}catch{}$('#theme-toggle').innerHTML=icon(theme==='dark'?'sun':'moon',16);$('#theme-toggle').setAttribute('aria-label',theme==='dark'?'切换浅色主题':'切换深色主题');}
 function routeTo(path){if(location.hash==='#'+path)route();else location.hash=path;}
 async function route(){
-  closeMenu();if($('#dialog').open)$('#dialog').close();const token=++state.routeID;const route=(location.hash.slice(1)||'feed').split('?')[0];renderShell();window.scrollTo({top:0});
+  stopPaymentPolling();closeMenu();if($('#dialog').open)$('#dialog').close();const token=++state.routeID;const route=(location.hash.slice(1)||'feed').split('?')[0];renderShell();window.scrollTo({top:0});
   if(route.startsWith('gap/'))return renderArticle(decodeURIComponent(route.slice(4)),token);
   if(route.startsWith('edit/'))return renderEdit(decodeURIComponent(route.slice(5)),token);
   if(route==='subscriptions')return renderSubscriptions(token);if(route==='membership')return renderMembership(token);
@@ -400,7 +424,7 @@ document.addEventListener('submit',async event=>{
     try{
       const data=await post('/api/auth/verify',{email:form.elements.email.value.trim(),code:form.elements.code.value.trim(),username:form.elements.username?.value.trim()||'',invite:form.elements.invite?.value.trim()||''});
       if(!data.user)throw new Error('账号信息暂时没有返回，请刷新页面后重试。');
-      state.user=data.user;state.boot={...(state.boot||{}),user:data.user};renderShell();
+      stopPaymentPolling();state.billingOrder=null;state.user=data.user;state.boot={...(state.boot||{}),user:data.user};renderShell();
       let refreshFailed=false;
       try{await refreshBoot();}catch{refreshFailed=true;}
       if(!state.user)throw new Error('验证已完成，但登录状态未能保存。请允许本站保存 Cookie 后重试。');
@@ -433,5 +457,6 @@ document.addEventListener('keydown',event=>{if((event.metaKey||event.ctrlKey)&&e
 window.addEventListener('hashchange',()=>{state.page=1;route();});
 $('#menu-toggle').innerHTML=icon('menu',19);$('#search-icon').innerHTML=icon('search',16);
 let preferredTheme='dark';try{preferredTheme=localStorage.getItem('infogap-theme')||'dark';}catch{}setTheme(preferredTheme==='light'?'light':'dark');
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&state.billingOrder?.status==='pending'&&$('#membership-checkout'))startPaymentPolling(state.billingOrder);});
 setInterval(updateCodeButton,1000);
 (async()=>{try{await refreshBoot();await route();if(state.invite&&!state.user)openAuth('join');}catch(error){renderShell();$('#main').innerHTML=empty('情报站暂时没有连接成功',error.message,'<button class="btn primary" id="reload-app">重新连接</button>');$('#reload-app').onclick=()=>location.reload();}})();

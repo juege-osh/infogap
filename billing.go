@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"io"
+	"log"
 	"mime"
 	"net/http"
 	"net/url"
@@ -444,10 +445,12 @@ func (s *server) billingNotify(w http.ResponseWriter, r *http.Request) {
 	raw, sig := form.Get("resp_data"), form.Get("sign")
 	result, err := s.billing.provider.VerifyNotification(raw, sig)
 	if err != nil || (result.TransactionStatus != "S" && result.TransactionStatus != "F") {
+		log.Printf("payment_notify_rejected stage=verification error=%v", err)
 		billingAck(w, 400, "FAIL")
 		return
 	}
 	if err = s.billingApply(result, "notify:"+digest(raw)); err != nil {
+		log.Printf("payment_notify_rejected stage=settlement order=%s error=%v", result.PaymentNo, err)
 		billingAck(w, 500, "FAIL")
 		return
 	}
