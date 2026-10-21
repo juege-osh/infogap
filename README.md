@@ -64,3 +64,5 @@ go run . -addr 127.0.0.1:18869 -db state/infogap.sqlite -web web
 `deploy/install.sh` 接收已上传到服务器的版本目录，先备份现有数据库，再切换独立服务、配置站点及启动采集/备份定时器。构建时用 `-X main.buildCommit=<commit>` 注入版本，公开 `/healthz` 可核对代码版本。
 
 反向代理只信任Cloudflare公布的IP范围及本机受信反向代理网络，避免登录限流把所有成员算作同一个代理地址。范围来源：[IPv4](https://www.cloudflare.com/ips-v4/)、[IPv6](https://www.cloudflare.com/ips-v6/)，发布时需复核。
+
+修改前端后同步更新 `web/index.html` 的脚本和样式版本参数，避免浏览器或 CDN 继续使用上一版界面。HTML 本身不缓存。
