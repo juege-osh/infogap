@@ -161,10 +161,10 @@ def run(args):
             with db:
                 for gap_id, title, body, source_url in db.execute("SELECT id,title,body,source_url FROM gaps WHERE status='pending' AND author_id IS NULL").fetchall():
                     if validation.needs_chinese(title, body) and not touched_by_editor(db, gap_id):
-                        collect.queue_summary(db, {"source_url": source_url}, title + "\n\n" + body)
+                        collect.queue_summary(db, {"source_url": source_url, "title": title}, title + "\n\n" + body)
             used = attempts_today(db, day_start)
             budget = min(args.max_items, max(0, DAILY_ATTEMPTS-used))
-            jobs = [row[0] for row in db.execute("SELECT id FROM summary_jobs WHERE attempts<? AND (state='pending' OR (state IN ('failed','processing') AND last_attempt<?)) ORDER BY id LIMIT ?", (MAX_ATTEMPTS, cutoff, budget))]
+            jobs = [row[0] for row in db.execute("SELECT id FROM summary_jobs WHERE attempts<? AND (state='pending' OR (state IN ('failed','processing') AND last_attempt<?)) ORDER BY gap_id,id LIMIT ?", (MAX_ATTEMPTS, cutoff, budget))]
         for job_id in jobs:
             print(json.dumps(process_job(path, job_id), ensure_ascii=False), flush=True)
         with bridge.database(path) as db:
