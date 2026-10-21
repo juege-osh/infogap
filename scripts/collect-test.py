@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Official index parser fixtures: no network or production database."""
 import importlib.util
+import json
 from pathlib import Path
+import re
 import unittest
+from urllib.parse import urlsplit
 
 spec = importlib.util.spec_from_file_location("collect", str(Path(__file__).with_name("collect.py")))
 worker = importlib.util.module_from_spec(spec)
@@ -14,6 +17,35 @@ SOURCE = {"id": "fixture", "kind": "html", "url": "https://www.moa.gov.cn/xw/zwd
 class OfficialListTests(unittest.TestCase):
     def parse(self, html, source=None):
         return worker.parse_items(html.encode("utf-8"), source or SOURCE)
+
+    def test_actual_html_config_matches_verified_article_urls(self):
+        # Load production JSON rather than duplicating its regex as a Python raw
+        # string: JSON escaping is part of the configuration contract.
+        config = json.loads((Path(__file__).resolve().parents[1] / "data" / "sources.json").read_text(encoding="utf-8"))
+        sources = {source["id"]: source for source in config if source["kind"] == "html"}
+        examples = {
+            "cn-moa-news": ["https://www.moa.gov.cn/xw/zwdt/202610/t20261015_6488642.htm"],
+            "cn-gov-policy": ["https://www.gov.cn/zhengce/202610/content_7082820.htm", "https://www.gov.cn/zhengce/content/202610/content_7082737.htm"],
+            "cn-mca-announcements": ["https://www.mca.gov.cn/n152/n165/c1662004999980013632/content.html"],
+            "cn-mot-news": ["https://www.mot.gov.cn/xinwen/jiaotongyaowen/202610/t20261021_4226351.html"],
+            "cn-ndrc-news": ["https://www.ndrc.gov.cn/xwdt/xwfb/202610/t20261020_1408278.html"],
+            "cn-mee-news": ["https://www.mee.gov.cn/ywdt/hjywnews/202610/t20261020_1183416.shtml"],
+            "cn-cnsa-news": ["https://www.cnsa.gov.cn/n6758823/n6758838/c10780180/content.html"],
+        }
+        self.assertEqual(set(sources), set(examples))
+        for source_id, urls in examples.items():
+            source = sources[source_id]
+            pattern = re.compile(source["article_pattern"])
+            for url in urls:
+                with self.subTest(source=source_id, url=url):
+                    self.assertIsNotNone(pattern.fullmatch(urlsplit(url).path))
+                    self.assertIsNone(pattern.fullmatch(urlsplit(source["url"]).path))
+                    self.assertIsNone(pattern.fullmatch(urlsplit(url).path + ".invalid"))
+                    title = source["name"] + "公开资料与政策更新"
+                    items = self.parse('<li><a href="' + url + '">' + title + '</a></li>', source)
+                    self.assertEqual(len(items), 1)
+                    self.assertEqual(items[0]["url"], url)
+                    self.assertEqual(items[0]["title"], title)
 
     def test_only_expected_official_articles_and_unique_urls(self):
         rows = self.parse('''<!doctype html><nav><a href="/">首页导航不是文章</a></nav>

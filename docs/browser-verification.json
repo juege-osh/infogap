@@ -1,5 +1,5 @@
 {
-  "verified_at": "2026-10-21T09:52:10Z",
+  "verified_at": "2026-10-21T10:06:56Z",
   "playwright": "1.64.0",
   "chromium": "156.0.8078.4",
   "image": "infogap-browser:1.64.0",
@@ -129,6 +129,54 @@
       ],
       "input_character": "supplementary Unicode code point",
       "tested": "Extracted actual collector block; original length, 20000 cap, truncation flag, and DOM scope assertions."
+    },
+    {
+      "name": "official_html_production_dry_run",
+      "server_release": "20261021-ecbb4b0",
+      "source_config_sha256": "c38a0c32553a1c2d5bb114016b3cd3ddbd95f30a62ba04d61f31254b5a94493a",
+      "configuration_changed": false,
+      "regex_verified": "Loaded JSON patterns contain one backslash before d (code points 92,100); actual official article URLs match without any replacement.",
+      "offline_fixture_test": "scripts/collect-test.py: 8 tests passed; production JSON loaded for all 7 HTML sources and 8 real known article URLs.",
+      "results": [
+        {
+          "id": "cn-gov-policy",
+          "checked_at": "2026-10-21T10:05:55Z",
+          "ok": true,
+          "received": 14,
+          "checked": 10,
+          "inserted": 0,
+          "invalid": 0
+        },
+        {
+          "id": "cn-mca-announcements",
+          "checked_at": "2026-10-21T10:05:58Z",
+          "ok": true,
+          "received": 15,
+          "checked": 10,
+          "inserted": 0,
+          "invalid": 0
+        },
+        {
+          "id": "cn-mot-news",
+          "checked_at": "2026-10-21T10:06:00Z",
+          "ok": true,
+          "received": 497,
+          "checked": 10,
+          "inserted": 0,
+          "invalid": 0
+        },
+        {
+          "id": "cn-cnsa-news",
+          "checked_at": "2026-10-21T10:06:04Z",
+          "ok": true,
+          "received": 12,
+          "checked": 10,
+          "inserted": 0,
+          "invalid": 0
+        }
+      ],
+      "dry_run": true,
+      "note": "Executed the deployed collector on the production host with --check. No DB writes. Both production and browser-build source files match the local SHA-256; no image rebuild was needed."
     }
   ],
   "notes": [
