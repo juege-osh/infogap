@@ -132,6 +132,23 @@ func (s *server) authVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	u, err := userScan(tx.QueryRow("SELECT "+userCols+" FROM users WHERE email=?", in.Email))
 	if err == sql.ErrNoRows {
+		// The verified founder can initialize the site from the login form,
+		// which intentionally has no username or invite fields.
+		if in.Email == founderEmail && in.Username == "" {
+			in.Username = "觉哥"
+			var used int
+			if e := tx.QueryRow("SELECT COUNT(*) FROM users WHERE username=?", in.Username).Scan(&used); e != nil {
+				fail(w, 500, "登录失败")
+				return
+			}
+			if used > 0 {
+				in.Username = "站长" + token(4)
+			}
+		}
+		if in.Username == "" {
+			fail(w, 400, "此邮箱尚未注册，请切换“受邀加入”并填写用户名和邀请码")
+			return
+		}
 		if utf8.RuneCountInString(in.Username) < 2 || utf8.RuneCountInString(in.Username) > 24 || strings.ContainsAny(in.Username, "\r\n\t<>\x00") {
 			fail(w, 400, "用户名需为 2–24 个字符")
 			return

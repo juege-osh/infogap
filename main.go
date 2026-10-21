@@ -27,7 +27,7 @@ import (
 )
 
 const founderEmail = "1402272093@qq.com"
-const version = "1.0.4"
+const version = "1.0.5"
 
 var buildCommit = "dev"
 

@@ -45,9 +45,10 @@ func authHTTP(t *testing.T, client *http.Client, origin, path string, input any)
 }
 
 func TestVerifiedRegistrationAutomaticallyLogsInWithSecureCookie(t *testing.T) {
-	for _, tc := range []struct{ name, email, invite, role string }{
-		{"invited member", "new-member@example.org", "MEMBER-INVITE", "member"},
-		{"verified founder", founderEmail, "", "admin"},
+	for _, tc := range []struct{ name, email, invite, role, username string }{
+		{"invited member", "new-member@example.org", "MEMBER-INVITE", "member", "新成员"},
+		{"verified founder", founderEmail, "", "admin", "新成员"},
+		{"founder first login", founderEmail, "", "admin", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := testServer(t)
@@ -94,7 +95,7 @@ func TestVerifiedRegistrationAutomaticallyLogsInWithSecureCookie(t *testing.T) {
 					t.Fatal("registration bypassed the required invite")
 				}
 			}
-			res, user = authHTTP(t, client, host.URL, "/api/auth/verify", map[string]string{"email": tc.email, "code": code, "username": "新成员", "invite": tc.invite})
+			res, user = authHTTP(t, client, host.URL, "/api/auth/verify", map[string]string{"email": tc.email, "code": code, "username": tc.username, "invite": tc.invite})
 			if res.StatusCode != 200 || user == nil || user.ID == 0 || user.Email != tc.email || user.Role != tc.role {
 				t.Fatal("verified registration did not return the new user and role")
 			}
