@@ -95,7 +95,7 @@ def process_job(path, job_id, runner=None):
                     snapshot[0] != title or hashlib.sha256(snapshot[2].encode("utf-8")).hexdigest() != expected or touched_by_editor(db, gap_id)):
                 set_state(db, job_id, "edited", "稿件已被编辑或审核，自动精炼不会覆盖。")
                 return {"job": job_id, "status": "edited"}
-            if not isinstance(text, str) or len(text) <= 2000 or len(text) > 20000 or hashlib.sha256(text.encode("utf-8")).hexdigest() != digest:
+            if not isinstance(text, str) or not text or len(text) > 20000 or hashlib.sha256(text.encode("utf-8")).hexdigest() != digest:
                 set_state(db, job_id, "failed", "原文长度或指纹不符合精炼条件。")
                 return {"job": job_id, "status": "invalid_source"}
             if attempts_today(db, day_start) >= DAILY_ATTEMPTS:
@@ -114,7 +114,12 @@ def process_job(path, job_id, runner=None):
     summary, body = "", ""
     if valid:
         try:
-            draft = validation.validate_draft({"summary": result.get("summary"), "body": result.get("body")})
+            draft = validation.validate_draft({key: result.get(key) for key in ("summary", "body", "title_zh") if key in result})
+            translated_title = title
+            if validation.needs_chinese(title, text):
+                if not draft.get("title_zh"):
+                    raise ValueError("英文稿缺少中文译名")
+                translated_title = title + "（" + draft["title_zh"] + "）"
             summary, body = draft["summary"], draft["body"]
             heading = "内部核验参考 · 发布前需整理" if snapshot[9] == "internal" else "原始来源"
             body += "\n\n## " + heading + "\n\n[" + snapshot[7] + "](" + snapshot[8] + ")"
@@ -132,7 +137,7 @@ def process_job(path, job_id, runner=None):
                 state, error = "edited", "处理期间稿件已被编辑或审核，未覆盖。"
             elif valid:
                 state, error = "completed", ""
-                db.execute("UPDATE gaps SET summary=?,body=?,updated_at=?,review_note=review_note || ? WHERE id=?", (summary, body, collect.now(), " 已由gpt-6.1-sol低推理精炼；模型只整理现有材料，需审核事实、日期与来源后发布。", gap_id))
+                db.execute("UPDATE gaps SET title=?,summary=?,body=?,updated_at=?,review_note=review_note || ? WHERE id=?", (translated_title, summary, body, collect.now(), " 已由gpt-6.1-sol低推理精炼；模型只整理现有材料，需审核事实、日期与来源后发布。", gap_id))
             else:
                 state, error = "failed", str(result.get("error") or "模型结果未通过格式、字数或模型身份校验。")[:180]
             set_state(db, job_id, state, error)
@@ -153,6 +158,10 @@ def run(args):
         with bridge.database(path) as db:
             with db:
                 db.execute("UPDATE summary_jobs SET state='failed',error='已达到单篇最多3次尝试，保留原稿待人工处理。',updated_at=? WHERE state='processing' AND attempts>=? AND last_attempt<?", (collect.now(), MAX_ATTEMPTS, cutoff))
+            with db:
+                for gap_id, title, body, source_url in db.execute("SELECT id,title,body,source_url FROM gaps WHERE status='pending' AND author_id IS NULL").fetchall():
+                    if validation.needs_chinese(title, body) and not touched_by_editor(db, gap_id):
+                        collect.queue_summary(db, {"source_url": source_url}, title + "\n\n" + body)
             used = attempts_today(db, day_start)
             budget = min(args.max_items, max(0, DAILY_ATTEMPTS-used))
             jobs = [row[0] for row in db.execute("SELECT id FROM summary_jobs WHERE attempts<? AND (state='pending' OR (state IN ('failed','processing') AND last_attempt<?)) ORDER BY id LIMIT ?", (MAX_ATTEMPTS, cutoff, budget))]

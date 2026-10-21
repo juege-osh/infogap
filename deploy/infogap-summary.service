@@ -1,5 +1,5 @@
 [Unit]
-Description=Condense new long InfoGap candidates with bounded Codex requests
+Description=Translate and condense InfoGap candidates with bounded Codex requests
 After=network-online.target infogap-osh.service
 Wants=network-online.target
 

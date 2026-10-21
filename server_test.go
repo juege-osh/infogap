@@ -57,7 +57,7 @@ func account(t *testing.T, s *server, email, role string, credits int) (int64, s
 }
 func gap(t *testing.T, s *server, level, status string, author any) int64 {
 	t.Helper()
-	res, e := s.db.Exec(`INSERT INTO gaps(title,summary,body,category,level,evidence,source_name,source_url,published_at,created_at,updated_at,status,author_id) VALUES('新的科研进展标题','公开预览摘要','PROTECTED_SECRET_FULLTEXT','物理',?,'official','Nature',?,?,?,?,?,?)`, level, "https://www.nature.com/articles/"+token(8), stamp(s.now()), stamp(s.now()), stamp(s.now()), status, author)
+	res, e := s.db.Exec(`INSERT INTO gaps(title,summary,body,category,level,evidence,source_name,source_url,published_at,created_at,updated_at,status,author_id) VALUES('新的科研进展标题','公开预览摘要','PROTECTED_SECRET_FULLTEXT 研究团队公布了新的科研进展，实验条件和适用范围仍需要独立核验。','物理',?,'official','Nature',?,?,?,?,?,?)`, level, "https://www.nature.com/articles/"+token(8), stamp(s.now()), stamp(s.now()), stamp(s.now()), status, author)
 	if e != nil {
 		t.Fatal(e)
 	}

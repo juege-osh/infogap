@@ -58,6 +58,21 @@ class SummarizerTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
         self.assertFalse(self.cache.exists())
 
+    def test_short_english_requires_translation_and_cache_includes_title(self):
+        data = payload("Global emissions are slowing, but warming continues.")
+        data["title"] = "Global emissions slow but warming continues"
+        def translated(data, cache):
+            self.calls.append(data["title"])
+            value = draft()
+            value["title_zh"] = "全球排放增速放缓，但升温仍在继续"
+            return value, {}
+        self.assertEqual(self.run_job(data, translated)["status"], "ok")
+        self.assertEqual(self.run_job(data, translated)["status"], "cached")
+        data["title"] += " today"
+        self.assertEqual(self.run_job(data, translated)["status"], "ok")
+        self.assertEqual(len(self.calls), 2)
+        self.assertTrue(worker.needs_chinese(data["title"], "中文说明" * 200))
+
     def test_boundaries_are_processed(self):
         for size in (2001, 20000):
             self.assertEqual(self.run_job(payload("字" * size))["status"], "ok")

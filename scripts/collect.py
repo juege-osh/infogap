@@ -535,7 +535,11 @@ def insert_gap(db, item, status="pending", historical_seed=False):
 
 def queue_summary(db, item, source_text, truncated=False):
     """Private source material for a separate limited model worker; no LLM here."""
-    if not isinstance(source_text, str) or (len(source_text) <= 2000 and not truncated):
+    if not isinstance(source_text, str):
+        return 0
+    material = item.get("title", "") + source_text
+    needs_translation = (len(re.findall(r"[A-Za-z]", item.get("title", ""))) >= 20 and not re.search(r"[\u3400-\u9fff]", item.get("title", ""))) or len(re.findall(r"[A-Za-z]", material)) > max(20, len(re.findall(r"[\u3400-\u9fff]", material)) * 2)
+    if len(source_text) <= 2000 and not truncated and not needs_translation:
         return 0
     row = db.execute("SELECT id,title,body,updated_at,status,author_id FROM gaps WHERE source_url=?", (canonical_url(item["source_url"]),)).fetchone()
     if not row or row[4] != "pending" or row[5] is not None:

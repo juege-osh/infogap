@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -211,6 +212,10 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 	case "approve":
 		if g.Status != "pending" && g.Status != "rejected" {
 			fail(w, 409, "该信息已经处理，请刷新")
+			return
+		}
+		if !chineseReadingReady(g.Title, g.Summary, g.Body) {
+			fail(w, 400, "请先补齐中文标题译名、中文摘要和正文，再通过发布")
 			return
 		}
 		if !validLevel(in.Level) {
@@ -502,4 +507,23 @@ func (s *server) editGap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	send(w, 200, map[string]any{"ok": true, "status": "pending"})
+}
+
+// Source names and code may remain English; the title and explanation need Chinese.
+func chineseReadingReady(title, summary, body string) bool {
+	count := func(text string) (han, latin int) {
+		for _, r := range text {
+			if unicode.Is(unicode.Han, r) {
+				han++
+			}
+			if r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' {
+				latin++
+			}
+		}
+		return
+	}
+	th, tl := count(title)
+	sh, _ := count(summary)
+	bh, bl := count(body)
+	return (tl < 20 || th > 0) && sh >= 4 && bh >= 15 && bl <= bh*3
 }
