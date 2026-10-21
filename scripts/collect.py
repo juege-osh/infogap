@@ -29,6 +29,9 @@ ROOT = Path(__file__).resolve().parent.parent
 UA = "InfoGap/1.0 (+https://infogap.osh.lol; official-feed-monitor)"
 MAX_BYTES = 3 * 1024 * 1024
 TIMEOUT = 18
+MAX_TAGS = 10
+# Keep the shared database entry point aligned with the Go content API.
+CATEGORIES = frozenset({"前沿科技", "人工智能", "生命科学", "物理", "化学", "地球与地理", "天文与空间", "材料科学", "开源技术", "军事与国防", "政治与公共政策", "农业与食品", "社会民生", "法律法规", "航空航天", "经济与产业", "能源与环境", "医疗健康", "教育与就业", "交通与基建", "公共安全", "生活实用", "省钱优惠", "招聘求职", "职业成长", "住房居住", "出行旅行", "商业创业"})
 ALLOWED_HOSTS = {"www.nature.com", "www.science.org", "rss.arxiv.org", "www.nasa.gov", "www.esa.int", "api.github.com", "linux.do", "www.gov.cn", "www.mca.gov.cn", "www.mot.gov.cn", "www.cnsa.gov.cn", "www.gov.uk", "www.federalregister.gov", "www.who.int", "www.moa.gov.cn", "www.ndrc.gov.cn", "www.mee.gov.cn"}
 ROBOT_CACHE = {}
 HOST_LAST = {}
@@ -414,6 +417,32 @@ def source_filter(item, source):
                 re.search(source["signal_pattern"], title, re.I))
 
 
+def official_category(title, source):
+    """Route practical official updates without an extra model call.
+
+    This is a review-queue suggestion, never a claim of eligibility or value.
+    Scientific and community sources retain their existing classification.
+    """
+    host = urllib.parse.urlsplit(source.get("url", "")).hostname
+    if source.get("evidence") != "official" or host not in {
+            "www.gov.cn", "www.mca.gov.cn", "www.mot.gov.cn",
+            "www.moa.gov.cn", "www.ndrc.gov.cn", "www.mee.gov.cn"}:
+        return source["category"]
+    rules = [
+        ("招聘求职", r"招聘|求职|招录|招考|见习岗位|岗位征集"),
+        ("住房居住", r"公积金|租房|住房租赁|保障性住房|保障房|公租房|购房"),
+        ("职业成长", r"职业培训|职业技能|技能培训|继续教育|资格考试|职称|职业资格"),
+        ("省钱优惠", r"消费券|优惠券|以旧换新|购置补贴|消费补贴|家电补贴|购车补贴|免费开放|免费乘车|费用减免"),
+        ("出行旅行", r"旅游|出游|景区|景点|免签|签证|出入境|旅客|客票|退票|车票|机票|列车"),
+        ("商业创业", r"创业|初创企业|个体工商户|小微企业"),
+        ("生活实用", r"便民|生活服务|身份证|居住证|社保卡|医保结算|证件办理|水电气|异地就医"),
+    ]
+    for category, pattern in rules:
+        if re.search(pattern, title):
+            return category
+    return source["category"]
+
+
 def candidate(item, source):
     title = text_only(item["title"])[:220]
     if not title:
@@ -455,15 +484,30 @@ def candidate(item, source):
         body += ("\n\n## 适用范围与时间\n\n地区：" + source["jurisdiction"] +
                  "\n\n来源发布日期：" + (date[:10] if date else "待核验") +
                  "\n\n生效日期：待核验。文件属于草案、正式公布、现行有效或已废止，需以正文及后续官方文件为准；发布日期不等于生效日期。")
+    category = official_category(title, source)
+    if category in {"招聘求职", "省钱优惠", "职业成长", "住房居住", "商业创业", "出行旅行", "生活实用"}:
+        body += "\n\n## 参与条件与时限\n\n适用地区、参与资格、费用、办理入口及截止时间待核验；正式发布前须补齐。长期服务也需确认目前仍开放。"
     body += "\n\n## 原始来源\n\n[" + source["name"] + "](" + url + ")"
     return {"title": title, "summary": "待核验候选｜" + source["name"] + "新条目，具体内容和价值待编辑核实。",
-            "body": body, "category": source["category"], "level": "ordinary", "evidence": source["evidence"],
+            "body": body, "category": category, "level": "ordinary", "evidence": source["evidence"],
             "source_name": source["name"], "source_url": url, "published_at": date,
             "tags": ["自动采集", "待核验"], "review_note": "只采集元信息和短摘录；禁止直接把此条视为全文解读。"}
 
 
 def insert_gap(db, item, status="pending", historical_seed=False):
     data = dict(item)
+    if not isinstance(data.get("category"), str) or data["category"] not in CATEGORIES:
+        raise ValueError("每条信息必须选择一个有效主题")
+    tags = data.get("tags", [])
+    if not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags):
+        raise ValueError("标签必须是文本数组")
+    if len(tags) > MAX_TAGS:
+        raise ValueError("每条信息最多10个标签")
+    if any(len(tag) > 24 for tag in tags):
+        raise ValueError("每个标签最多24字")
+    # Like Go's []string API, preserve order, whitespace and duplicates; count
+    # the supplied tags before any normalization instead of silently truncating.
+    data["tags"] = tags
     data["source_url"] = canonical_url(data["source_url"])
     if db.execute("SELECT 1 FROM gaps WHERE source_url=?", (data["source_url"],)).fetchone():
         return 0
@@ -480,7 +524,9 @@ def insert_gap(db, item, status="pending", historical_seed=False):
         if "released_at" not in [row[1] for row in db.execute("PRAGMA table_info(gaps)")]:
             raise RuntimeError("数据库缺少released_at列；请先更新Go服务")
         fields.append("released_at")
-        data["released_at"] = stamp(data["published_at"])
+        # A manually verified evergreen guide may have no source publication
+        # date. Publish it now; never present verification as the source date.
+        data["released_at"] = stamp(data.get("published_at")) or now()
     values = [data.get(key, "") for key in fields]
     ts = now()
     db.execute("INSERT OR IGNORE INTO gaps (" + ",".join(fields) + ",created_at,updated_at,status,tags,author_id,rewarded) VALUES (" + ",".join(["?"] * (len(fields) + 4)) + ",NULL,0)", values + [ts, ts, status, json.dumps(data.get("tags", []), ensure_ascii=False)])
@@ -529,15 +575,23 @@ def run(args):
     if args.import_seed:
         if args.check:
             raise ValueError("--check与--import-seed不能同时使用")
-        seeds = json.loads(Path(args.import_seed).read_text(encoding="utf-8"))
-        count = 0
-        with db:
-            for item in seeds:
-                if not item.get("review_note") or not stamp(item.get("published_at")):
-                    raise ValueError("种子内容必须有核验说明和原始日期")
-                count += insert_gap(db, item, "published" if args.publish_seed else "pending", historical_seed=True)
-        print(json.dumps({"seed_count": len(seeds), "inserted": count, "status": "published" if args.publish_seed else "pending"}, ensure_ascii=False))
-        db.close()
+        try:
+            seeds = json.loads(Path(args.import_seed).read_text(encoding="utf-8"))
+            count = 0
+            with db:
+                for item in seeds:
+                    source_date = stamp(item.get("published_at"))
+                    verified = stamp(item.get("verified_at"))
+                    if (not item.get("review_note") or (not source_date and not verified) or
+                            (item.get("published_at") and not source_date) or
+                            (verified and parse_date(verified) > utcnow())):
+                        raise ValueError("种子内容必须有核验说明及原始日期；无原日期的常设指南需明确verified_at核验时间")
+                    if not source_date:
+                        item = dict(item, published_at="", review_note=item["review_note"] + " 原站未标注发布日期；本站核验时间：" + verified + "，公开发布后按本站发布时间计时。")
+                    count += insert_gap(db, item, "published" if args.publish_seed else "pending", historical_seed=True)
+            print(json.dumps({"seed_count": len(seeds), "inserted": count, "status": "published" if args.publish_seed else "pending"}, ensure_ascii=False))
+        finally:
+            db.close()
         return 0
     results, failures = [], 0
     for source in sources:

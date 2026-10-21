@@ -449,12 +449,16 @@ func (s *server) editGap(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "标题需 8–120 字，摘要 15–300 字，正文 80–15000 字")
 		return
 	}
-	if !has(categories, in.Category) || !has([]string{"peer_reviewed", "preprint", "official", "repository", "unverified"}, in.Evidence) || len(in.Tags) > 8 {
+	if !has(categories, in.Category) || !has([]string{"peer_reviewed", "preprint", "official", "repository", "unverified"}, in.Evidence) {
 		fail(w, 400, "分类、证据类型或标签不正确")
 		return
 	}
 	if in.SourceVisibility != nil && !has([]string{"public", "internal"}, *in.SourceVisibility) {
 		fail(w, 400, "来源可见性不正确")
+		return
+	}
+	if len(in.Tags) > maxTags {
+		fail(w, 400, "每条信息最多 10 个标签")
 		return
 	}
 	for _, tag := range in.Tags {

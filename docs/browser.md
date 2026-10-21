@@ -22,7 +22,7 @@ sh deploy/browser-run.sh --source x-nasa
 
 标准输出是一条 JSON，字段包括 `checked_at`、`source_id`、`status`、`http_status`、`error`、`candidates` 和 `diagnostics`。`status` 可为 `ok`、`blocked`、`login_required`、`error`。退出码分别为 0、3、3、1。
 
-每条候选提供标题、短摘要、Markdown 正文、来源链接、可取得的原始发布时间、领域和标签。`status=pending`、`evidence=unverified` 固定；Linux.do 使用 `source_visibility=internal`。候选展示正文只保留最多 200 字摘录。Linux.do 候选另提供供内部摘要流程处理的 `raw_text`，保存当前主帖可见 DOM 正文，最多 20000 个 Unicode 字符；`raw_text_length` 是截断前长度，`text_truncated` 明确标记是否超限，`raw_text_scope=main_post_visible_dom` 说明范围。它不包含整串讨论或外链文章，超限片段不能宣称是全文。没有取得日期时留空，并在审核备注中说明。
+每条候选提供标题、短摘要、Markdown 正文、来源链接、可取得的原始发布时间、领域和标签。`status=pending`、`evidence=unverified` 固定；Linux.do 使用 `source_visibility=internal`。候选展示正文只保留最多 200 字摘录。Linux.do 候选另提供供内部摘要流程处理的 `raw_text`，保存当前主帖可见 DOM 正文，最多 20000 个 Unicode 字符；`raw_text_length` 是截断前长度，`text_truncated` 明确标记是否超限，`raw_text_scope=main_post_visible_dom` 说明范围。它不包含整串讨论或外链文章，超限片段不能宣称是全文。没有取得日期时留空；父采集程序会过滤日期不明、超过180天或异常未来日期的候选，不入库、不进入模型队列。
 
 Linux.do 中的外部链接只作为 `reference_urls`，不会自动认定为一手证据。图片附件不列作证据。X 的 `primary_evidence_urls` 必须来自实际帖子 DOM，并匹配该账号的证据域名；只出现 t.co 短链的条目本轮不入库。X 候选额外提供从 DOM 读到的 `author_handle`。转帖、回复和营销条目会被筛除，身份白名单不等于内容已核验。
 

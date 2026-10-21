@@ -12,8 +12,11 @@ import (
 	"unicode/utf8"
 )
 
+const maxTags = 10
+
 type Gap struct {
 	ID               int64         `json:"id"`
+	Code             string        `json:"code"`
 	Title            string        `json:"title"`
 	Summary          string        `json:"summary"`
 	Body             string        `json:"body,omitempty"`
@@ -47,6 +50,7 @@ func gapScan(r scanner, u *User) (*Gap, error) {
 	if err != nil {
 		return nil, err
 	}
+	g.Code = gapCode(g.ID, g.Level)
 	g.Tags = []string{}
 	g.UnlockCost = unlockCosts[g.Level]
 	_ = json.Unmarshal([]byte(tags), &g.Tags)
@@ -149,14 +153,28 @@ func (s *server) listGaps(w http.ResponseWriter, r *http.Request) {
 			args = append(args, v)
 		}
 	}
+	travelWhere, travelArgs, travelErr := travelFilter(r.URL.Query(), u)
+	if travelErr != nil {
+		fail(w, 400, travelErr.Error())
+		return
+	}
+	where += travelWhere
+	args = append(args, travelArgs...)
 	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
 		if utf8.RuneCountInString(q) > 100 {
 			fail(w, 400, "搜索词过长")
 			return
 		}
-		where += " AND (" + publicTextSQL("g.title", u) + " LIKE ? OR " + publicTextSQL("g.summary", u) + " LIKE ? OR EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(g.tags) THEN g.tags ELSE '[]' END) search_tag WHERE " + publicTextSQL("search_tag.value", u) + " LIKE ?))"
-		p := "%" + q + "%"
-		args = append(args, p, p, p)
+		if id, ok := gapCodeID(q); ok {
+			// A code only narrows the already-authorized list; it does not bypass
+			// status, release delay, subscriptions, or any other active filter.
+			where += " AND g.id=?"
+			args = append(args, id)
+		} else {
+			where += " AND (" + publicTextSQL("g.title", u) + " LIKE ? OR " + publicTextSQL("g.summary", u) + " LIKE ? OR EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(g.tags) THEN g.tags ELSE '[]' END) search_tag WHERE " + publicTextSQL("search_tag.value", u) + " LIKE ?))"
+			p := "%" + q + "%"
+			args = append(args, p, p, p)
+		}
 	}
 	var total int
 	err := s.db.QueryRow("SELECT COUNT(*) FROM gaps g"+where, args...).Scan(&total)
@@ -383,8 +401,12 @@ func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "标题需 8–120 字，摘要 15–300 字，正文 80–15000 字")
 		return
 	}
-	if !allowedURL(in.SourceURL) || len(in.SourceURL) > 2000 || in.SourceName == "" || utf8.RuneCountInString(in.SourceName) > 80 || !has(categories, in.Category) || !validLevel(in.Level) || !has([]string{"peer_reviewed", "preprint", "official", "repository", "unverified"}, in.Evidence) || len(in.Tags) > 8 {
+	if !allowedURL(in.SourceURL) || len(in.SourceURL) > 2000 || in.SourceName == "" || utf8.RuneCountInString(in.SourceName) > 80 || !has(categories, in.Category) || !validLevel(in.Level) || !has([]string{"peer_reviewed", "preprint", "official", "repository", "unverified"}, in.Evidence) {
 		fail(w, 400, "请检查分类、证据类型和来源链接")
+		return
+	}
+	if len(in.Tags) > maxTags {
+		fail(w, 400, "每条信息最多 10 个标签")
 		return
 	}
 	for _, t := range in.Tags {
@@ -432,7 +454,7 @@ func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "投稿失败")
 		return
 	}
-	send(w, 201, map[string]any{"id": id, "status": "pending"})
+	send(w, 201, map[string]any{"id": id, "code": gapCode(id, in.Level), "status": "pending"})
 }
 func (s *server) activity(w http.ResponseWriter, r *http.Request) {
 	u := s.require(w, r)

@@ -26,6 +26,31 @@ class OfficialListTests(unittest.TestCase):
     def parse(self, html, source=None):
         return worker.parse_items(html.encode("utf-8"), source or SOURCE)
 
+    def test_practical_official_candidates_are_routed_with_conditions_unverified(self):
+        examples = {
+            "招聘求职": "事业单位公开招聘工作人员公告",
+            "住房居住": "住房公积金租房提取办理说明",
+            "职业成长": "职业技能培训报名服务正式上线",
+            "省钱优惠": "本市新一批家电以旧换新补贴申领指南",
+            "出行旅行": "铁路旅客客票退票规则公布",
+            "商业创业": "支持初创企业发展的服务措施",
+            "生活实用": "居民身份证异地办理便民服务更新",
+        }
+        for expected, title in examples.items():
+            with self.subTest(category=expected):
+                gap = worker.candidate({"title": title, "url": "https://www.moa.gov.cn/xw/zwdt/202610/t20261020_123.htm", "date": "2026-10-20"}, SOURCE)
+                self.assertEqual(gap["category"], expected)
+                self.assertEqual(gap["level"], "ordinary")
+                self.assertIn("参与资格、费用、办理入口及截止时间待核验", gap["body"])
+                self.assertNotIn("status", gap)
+
+    def test_practical_routing_preserves_unmatched_and_nonofficial_sources(self):
+        self.assertEqual(worker.official_category("全国农作物新品种研究进展", SOURCE), "农业与食品")
+        for source in (dict(SOURCE, evidence="unverified"), dict(SOURCE, url="https://www.nature.com/nature.rss", category="前沿科技")):
+            self.assertEqual(worker.official_category("公开招聘研究人员", source), source["category"])
+        # An employment announcement stays in jobs even if it also mentions a perk.
+        self.assertEqual(worker.official_category("校园招聘及租房补贴说明", SOURCE), "招聘求职")
+
     def test_actual_html_config_matches_verified_article_urls(self):
         # Load production JSON rather than duplicating its regex as a Python raw
         # string: JSON escaping is part of the configuration contract.
@@ -177,6 +202,78 @@ class FreshPublicationTests(unittest.TestCase):
         with contextlib.closing(sqlite3.connect(str(self.path))) as db:
             return db.execute(query).fetchall()
 
+    def test_common_insert_taxonomy_matches_go_api(self):
+        root = Path(__file__).resolve().parents[1]
+        main = (root / "main.go").read_text(encoding="utf-8")
+        content = (root / "content.go").read_text(encoding="utf-8")
+        values = re.search(r'var categories = \[\]string\{([^}]+)\}', main).group(1)
+        self.assertEqual(worker.CATEGORIES, set(json.loads("[" + values + "]")))
+        self.assertEqual(worker.MAX_TAGS, int(re.search(r'const maxTags = (\d+)', content).group(1)))
+
+    def test_common_insert_preserves_ten_tags_and_unicode_length(self):
+        item = worker.candidate(self.rss_item(dt.datetime(2026, 10, 20)), self.who)
+        # Go counts Unicode code points and preserves whitespace/duplicates.
+        tags = ["国家:日本", "地区:东亚", "旅行:优惠渠道", "😀" * 24,
+                " 原样 ", "重复", "重复", "", "甲", "乙"]
+        item.update(category="出行旅行", tags=tags, review_note="已核验的测试种子。")
+        seed = self.root / "ten-tags.json"
+        seed.write_text(json.dumps([item], ensure_ascii=False), encoding="utf-8")
+        code, report, fetch = self.execute(seed=seed)
+        self.assertEqual(code, 0)
+        fetch.assert_not_called()
+        self.assertEqual(report[0]["inserted"], 1)
+        category, stored, status = self.rows("SELECT category,tags,status FROM gaps")[0]
+        self.assertEqual((category, json.loads(stored), status), ("出行旅行", tags, "published"))
+        self.assertEqual(item["tags"], tags)
+
+    def test_common_insert_rejects_invalid_tag_shape_count_and_length(self):
+        item = worker.candidate(self.rss_item(dt.datetime(2026, 10, 20)), self.who)
+        invalid = [None, "标签", {"标签": True}, ("标签",), [1], [False], [None],
+                   [["标签"]], ["字" * 25], ["😀" * 25],
+                   ["标签%d" % i for i in range(11)], ["重复"] * 11]
+        with contextlib.closing(sqlite3.connect(str(self.path))) as db:
+            for tags in invalid:
+                with self.subTest(tags=tags), self.assertRaises(ValueError):
+                    worker.insert_gap(db, dict(item, tags=tags))
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM gaps").fetchone()[0], 0)
+
+    def test_common_insert_rejects_multiple_or_unknown_categories(self):
+        item = worker.candidate(self.rss_item(dt.datetime(2026, 10, 20)), self.who)
+        invalid = [None, "", "未知主题", " 物理 ", "物理,化学", "物理、化学",
+                   ["物理"], ["物理", "化学"], {"category": "物理"}]
+        with contextlib.closing(sqlite3.connect(str(self.path))) as db:
+            for category in invalid:
+                with self.subTest(category=category), self.assertRaises(ValueError):
+                    worker.insert_gap(db, dict(item, category=category))
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM gaps").fetchone()[0], 0)
+
+    def test_common_insert_validates_before_duplicate_url_shortcut(self):
+        item = worker.candidate(self.rss_item(dt.datetime(2026, 10, 20)), self.who)
+        with contextlib.closing(sqlite3.connect(str(self.path))) as db:
+            with db:
+                self.assertEqual(worker.insert_gap(db, item), 1)
+            self.assertEqual(worker.insert_gap(db, item), 0)
+            for changed in (dict(item, tags=["重复"] * 11), dict(item, category="物理,化学")):
+                with self.assertRaises(ValueError):
+                    worker.insert_gap(db, changed)
+            stored = db.execute("SELECT category,tags FROM gaps").fetchall()
+        self.assertEqual(stored, [(item["category"], json.dumps(item["tags"], ensure_ascii=False))])
+
+    def test_seed_batch_rolls_back_when_later_taxonomy_is_invalid(self):
+        existing = worker.candidate(self.rss_item(dt.datetime(2026, 10, 18)), self.who)
+        with contextlib.closing(sqlite3.connect(str(self.path))) as db:
+            with db:
+                worker.insert_gap(db, existing)
+        first = worker.candidate(self.rss_item(dt.datetime(2026, 10, 19)), self.who)
+        second = worker.candidate(self.rss_item(dt.datetime(2026, 10, 20)), self.who)
+        seed = self.root / "invalid-batch.json"
+        for invalid in (dict(second, tags=["标签%d" % i for i in range(11)]),
+                        dict(second, category="物理,化学"), dict(second, tags=[7])):
+            seed.write_text(json.dumps([first, invalid], ensure_ascii=False), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                self.execute(seed=seed)
+            self.assertEqual(self.rows("SELECT source_url,status FROM gaps"), [(existing["source_url"], "pending")])
+
     def test_who_original_url_date_overrides_recent_feed_modified_date(self):
         item = self.rss_item(dt.datetime(2020, 4, 6))
         parsed = worker.parse_items(self.feed([item]), self.who)[0]
@@ -281,6 +378,29 @@ class FreshPublicationTests(unittest.TestCase):
         fetch.assert_not_called()
         self.assertEqual(self.rows("SELECT published_at,released_at,status FROM gaps"), [("2020-04-06T00:00:00Z", "2020-04-06T00:00:00Z", "published")])
         self.assertEqual(self.rows("SELECT COUNT(*) FROM summary_jobs")[0][0], 0)
+
+    def test_verified_evergreen_seed_keeps_unknown_source_date_and_starts_delay_now(self):
+        item = worker.candidate(self.rss_item(None), self.who)
+        item.update(review_note="官方常设指南，条件已逐项核验。", verified_at="2026-10-21T11:00:00Z")
+        seed = self.root / "seed.json"
+        seed.write_text(json.dumps([item]), encoding="utf-8")
+        code, report, fetch = self.execute(seed=seed)
+        self.assertEqual(code, 0)
+        fetch.assert_not_called()
+        self.assertEqual(self.rows("SELECT published_at,released_at,status FROM gaps"), [("", "2026-10-21T12:00:00Z", "published")])
+        self.assertIn("原站未标注发布日期", self.rows("SELECT review_note FROM gaps")[0][0])
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM summary_jobs")[0][0], 0)
+
+    def test_undated_seed_requires_explicit_nonfuture_verification(self):
+        item = worker.candidate(self.rss_item(None), self.who)
+        item["review_note"] = "只有说明不足以证明核验时间。"
+        seed = self.root / "seed.json"
+        for verified in ("", "invalid", "2026-10-21T12:00:01Z", "2026-11-01T00:00:00Z"):
+            item["verified_at"] = verified
+            seed.write_text(json.dumps([item]), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                self.execute(seed=seed)
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM gaps")[0][0], 0)
 
 
 if __name__ == "__main__":

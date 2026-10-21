@@ -78,8 +78,8 @@ class BrowserCollectorTests(unittest.TestCase):
         self.assertEqual(len(sources), 12)
         self.assertFalse(next(s for s in sources if s["id"] == "x-sciencemagazine")["enabled"])
 
-    def test_all_twenty_one_categories_accept_config_and_candidate(self):
-        self.assertEqual(len(worker.CATEGORIES), 21)
+    def test_all_twenty_eight_categories_accept_config_and_candidate(self):
+        self.assertEqual(len(worker.CATEGORIES), 28)
         for category in worker.CATEGORIES:
             account = dict(ACCOUNT)
             account["category"] = category
@@ -241,6 +241,28 @@ class BrowserCollectorTests(unittest.TestCase):
             item = candidate()
             item[field] = value
             self.assertEqual(self.process(result(self.x, [item]))["status"], "error")
+        self.assertEqual(self.count(), 0)
+
+    def test_ten_tags_including_system_markers_are_preserved(self):
+        item = candidate()
+        item["tags"] = ["关键词%d" % i for i in range(8)]
+        value = worker.validate_candidate(item, self.x)
+        self.assertEqual(value["tags"], ["浏览器采集", "待核验"] + item["tags"])
+        self.assertEqual(len(value["tags"]), 10)
+        item["tags"] = list(value["tags"])
+        self.assertEqual(worker.validate_candidate(item, self.x)["tags"], value["tags"])
+        self.assertEqual(worker.MAX_CANDIDATES, 8)
+
+    def test_tag_limit_checks_input_and_final_system_marker_count(self):
+        for tags in (["词%d" % i for i in range(11)],
+                     ["词%d" % i for i in range(9)],
+                     ["浏览器采集"] + ["词%d" % i for i in range(9)]):
+            with self.subTest(tags=tags):
+                item = candidate()
+                item["tags"] = tags
+                report = self.process(result(self.x, [item]))
+                self.assertEqual(report["status"], "error")
+                self.assertEqual(report["candidates"], [])
         self.assertEqual(self.count(), 0)
 
     def test_max_eight_candidates_and_batch_rollback(self):

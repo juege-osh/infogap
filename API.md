@@ -32,3 +32,18 @@ Collector only inserts candidate pending content. Never automatically reward/cla
 段位时效、订阅配置、会员有效期和站长全状态查询的最终字段与规则见 `docs/backend.md`；会员计划、订单、查询与验签回调见 `docs/billing.md`。`healthz.commit` 为实际运行的Git提交。
 
 GET /api/admin/overview additionally returns summary_jobs:{pending,completed,failed,too_long,edited,processing}; staff only. No source text, credentials or model output logs are exposed.
+
+
+## 1.0.3 旅行筛选
+
+`GET /api/bootstrap` 增加 `travel_topics`（7个旅行标签）和 `travel_regions`（12个地区）。分类总数为28，出行旅行使用同一套额度与段位规则。
+
+`GET /api/travel/facets` 返回 `{countries:[]}`。国家仅从当前用户可见、已发布的旅行内容中读取；不会因筛选选项泄露尚未到可见时间的条目。
+
+`GET /api/gaps?country=日本&region=东亚&travel_topic=优惠渠道` 按三项精确AND匹配，并限定“出行旅行”。各项均可省略，国家可输入未收录名称并返回空结果，不做模糊匹配。
+
+投稿与后台编辑继续使用 `tags`；旅行国家、地区、旅行类型分别保存为 `国家:日本`、`地区:东亚`、`旅行:优惠渠道`。页面提供普通中文表单，其他标签与旅行信息合计最多10个标签。
+
+每条内容的 `category` 是唯一主题，必须是28个已定义主题中的单个字符串；数组和多个主题拼接值均拒绝。投稿和编辑 `tags` 最多10项，超过10项返回错误，不静默截断。
+
+内容响应增加 `code`，由当前层级前缀与全站入库ID组成：ordinary→PT、featured→JX、rare→XY、exclusive→DJ，数字至少两位且永不因等级变化重排。列表、详情、后台和成员投稿记录使用同一编号。按编号搜索仍检查原有可见时间和阅读权限。

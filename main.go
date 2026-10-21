@@ -27,11 +27,11 @@ import (
 )
 
 const founderEmail = "1402272093@qq.com"
-const version = "1.0.2"
+const version = "1.0.3"
 
 var buildCommit = "dev"
 
-var categories = []string{"前沿科技", "人工智能", "生命科学", "物理", "化学", "地球与地理", "天文与空间", "材料科学", "开源技术", "军事与国防", "政治与公共政策", "农业与食品", "社会民生", "法律法规", "航空航天", "经济与产业", "能源与环境", "医疗健康", "教育与就业", "交通与基建", "公共安全"}
+var categories = []string{"前沿科技", "人工智能", "生命科学", "物理", "化学", "地球与地理", "天文与空间", "材料科学", "开源技术", "军事与国防", "政治与公共政策", "农业与食品", "社会民生", "法律法规", "航空航天", "经济与产业", "能源与环境", "医疗健康", "教育与就业", "交通与基建", "公共安全", "生活实用", "省钱优惠", "招聘求职", "职业成长", "住房居住", "出行旅行", "商业创业"}
 
 type Tier struct {
 	Name           string `json:"name"`
@@ -235,7 +235,7 @@ func (s *server) stats(u *User) map[string]int {
 func (s *server) bootstrap(w http.ResponseWriter, r *http.Request) {
 	_, err := smtpSettings()
 	u := s.current(r)
-	send(w, 200, map[string]any{"user": u, "stats": s.stats(u), "categories": categories, "tiers": tiers, "rules": map[string]any{"welcome": 10, "contribution": 100, "unlock_costs": unlockCosts, "daily_reset_timezone": "Asia/Shanghai"}, "mail_ready": err == nil})
+	send(w, 200, map[string]any{"user": u, "stats": s.stats(u), "categories": categories, "travel_topics": travelTopics, "travel_regions": travelRegions, "tiers": tiers, "rules": map[string]any{"welcome": 10, "contribution": 100, "unlock_costs": unlockCosts, "daily_reset_timezone": "Asia/Shanghai"}, "mail_ready": err == nil})
 }
 func (s *server) routes() http.Handler {
 	m := http.NewServeMux()
@@ -251,6 +251,7 @@ func (s *server) routes() http.Handler {
 	m.HandleFunc("POST /api/auth/verify", s.authVerify)
 	m.HandleFunc("POST /api/auth/logout", s.logout)
 	m.HandleFunc("GET /api/gaps", s.listGaps)
+	m.HandleFunc("GET /api/travel/facets", s.travelFacets)
 	m.HandleFunc("GET /api/gaps/{id}", s.getGap)
 	m.HandleFunc("POST /api/gaps/{id}/unlock", s.unlock)
 	m.HandleFunc("POST /api/gaps/{id}/save", s.saveGap)

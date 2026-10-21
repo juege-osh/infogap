@@ -31,12 +31,13 @@ collect = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(collect)
 
 MAX_CANDIDATES = 8
+MAX_TAGS = 10
 MAX_OUTPUT = 512 * 1024
 PROCESS_TIMEOUT = 90
 INTERVAL_SECONDS = 6 * 3600
 HANDLE = re.compile(r"^[A-Za-z0-9_]{1,15}$")
 DOMAIN = re.compile(r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
-CATEGORIES = {'前沿科技', '人工智能', '生命科学', '物理', '化学', '地球与地理', '天文与空间', '材料科学', '开源技术', '军事与国防', '政治与公共政策', '农业与食品', '社会民生', '法律法规', '航空航天', '经济与产业', '能源与环境', '医疗健康', '教育与就业', '交通与基建', '公共安全'}
+CATEGORIES = {'前沿科技', '人工智能', '生命科学', '物理', '化学', '地球与地理', '天文与空间', '材料科学', '开源技术', '军事与国防', '政治与公共政策', '农业与食品', '社会民生', '法律法规', '航空航天', '经济与产业', '能源与环境', '医疗健康', '教育与就业', '交通与基建', '公共安全', '生活实用', '省钱优惠', '招聘求职', '职业成长', '住房居住', '出行旅行', '商业创业'}
 MARKETING = re.compile(r"抽奖|带货|优惠券|领券|返利|返现|推广合作|邀请码|转发.{0,8}(抽|送)|购买.{0,8}(优惠|折扣)|限时.{0,8}(折扣|优惠)|\b(?:giveaway|airdrop|sponsored|coupon|cashback|referral|discount)\b|\b(?:buy now|promo code|subscribe now)\b|follow.{0,25}retweet", re.I)
 LINUX = {"id": "linuxdo-browser", "name": "Linux.do 浏览器线索", "url": "https://linux.do/c/news/34", "kind": "browser", "category": "开源技术", "enabled": True}
 
@@ -244,10 +245,12 @@ def validate_candidate(item, source):
     # official feeds after author, evidence and content validation has completed.
     published = collect.published_date({"date": raw_date}, source)
     tags = item.get("tags", [])
-    if not isinstance(tags, list) or len(tags) > 8:
+    if not isinstance(tags, list) or len(tags) > MAX_TAGS:
         raise ValueError("关键词数量不正确")
     tags = [bounded_text(value, "关键词", 1, 24) for value in tags]
-    tags = list(dict.fromkeys(["浏览器采集", "待核验"] + tags))[:8]
+    tags = list(dict.fromkeys(["浏览器采集", "待核验"] + tags))
+    if len(tags) > MAX_TAGS:
+        raise ValueError("加入采集标记后标签超过10个，未截断或导入")
     # Never import source-provided publication, attribution, tier or evidence flags.
     output = {"title": title, "summary": summary, "body": body, "category": source["category"], "source_name": source["name"], "source_url": link, "published_at": published, "source_visibility": visibility, "evidence": "unverified", "level": "ordinary", "status": "pending", "tags": tags, "review_note": "浏览器公开页面候选；来源与账号已校验，内容仍需人工核验，尚未发布。", "primary_evidence_urls": primary}
     if "raw_text" in item:

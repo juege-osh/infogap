@@ -191,7 +191,7 @@
     "evidence": "official",
     "source_visibility": "public",
     "enabled": true,
-    "description": "href末尾存在空格，需先strip再解析；过滤招聘、人事、公示类低相关条目。",
+    "description": "官方表格中的标题、链接及同一行发布日期；招聘、便民等候选按标题建议归类，仍须人工核验。",
     "article_pattern": "^/n152/n165/c\\d+/content\\.html$",
     "jurisdiction": "中国"
   },
@@ -205,7 +205,7 @@
     "evidence": "official",
     "source_visibility": "public",
     "enabled": true,
-    "description": "同页包含较多历史文章，按页面顺序限量采集；标题内有日期和空白需清理。",
+    "description": "同页包含较多历史文章，先按原始日期过滤并降序限量采集；旅游和旅客服务候选单独归类。",
     "article_pattern": "^/xinwen/jiaotongyaowen/\\d{6}/t\\d{8}_\\d+\\.html$",
     "jurisdiction": "中国"
   },
