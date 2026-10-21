@@ -286,3 +286,171 @@ func TestBillingFailureAndMembershipExpiry(t *testing.T) {
 		t.Fatal("expired membership retained subscriptions")
 	}
 }
+
+func TestBillingCreditPlansAndCheckoutUseServerPrices(t *testing.T) {
+	s, _, _, cookie := billingFixture(t)
+	w := request(s, "GET", "/api/billing/plans", nil, "")
+	mustStatus(t, w, 200)
+	var catalog struct {
+		Plans []billingPlan `json:"plans"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &catalog); err != nil {
+		t.Fatal(err)
+	}
+	if len(catalog.Plans) != 5 {
+		t.Fatalf("expected 2 membership plans and 3 credit packs: %s", w.Body)
+	}
+	for _, test := range []struct {
+		id     string
+		amount int64
+		credit int
+	}{{"credits_100", 990, 100}, {"credits_350", 2900, 350}, {"credits_1000", 7900, 1000}} {
+		o := billingPurchase(t, s, cookie, test.id, "wechat")
+		if o.Type != "credits" || o.AmountCents != test.amount || o.Credits != test.credit || o.Days != 0 || o.MembershipUntil != "" {
+			t.Fatalf("incorrect credit order: %+v", o)
+		}
+	}
+	mustStatus(t, request(s, "POST", "/api/billing/orders", map[string]any{"plan": "credits_100", "channel": "wechat", "credits": 999999}, cookie), 400)
+}
+
+func TestBillingCreditsGrantOnlyStoredQuantityAndRefreshUser(t *testing.T) {
+	s, f, uid, cookie := billingFixture(t)
+	until := stamp(s.now().Add(20 * 24 * time.Hour))
+	if _, err := s.db.Exec("UPDATE users SET membership_until=?,points=120 WHERE id=?", until, uid); err != nil {
+		t.Fatal(err)
+	}
+	o := billingPurchase(t, s, cookie, "credits_350", "alipay")
+	// The stored order remains authoritative even after a catalog product is renamed/retired.
+	if _, err := s.db.Exec("UPDATE billing_orders SET plan='retired_credit_pack' WHERE id=?", o.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.queryErr, f.query = nil, billingSuccess(o)
+	w := request(s, "GET", "/api/billing/orders/"+o.ID, nil, cookie)
+	mustStatus(t, w, 200)
+	var response struct {
+		Order billingOrder `json:"order"`
+		User  User         `json:"user"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Order.Type != "credits" || response.Order.Status != "success" || response.Order.Days != 0 || response.User.Credits != 360 || response.User.Points != 120 || response.User.MembershipUntil != until || response.User.Entitlements.DelayHours != 48 {
+		t.Fatalf("credit payment altered unrelated rights: %s", w.Body)
+	}
+	var membershipGrants, creditGrants, ledgerCount, amount int
+	s.db.QueryRow("SELECT COUNT(*) FROM billing_grants").Scan(&membershipGrants)
+	s.db.QueryRow("SELECT COUNT(*) FROM billing_credit_grants WHERE order_id=?", o.ID).Scan(&creditGrants)
+	s.db.QueryRow("SELECT COUNT(*),COALESCE(SUM(amount),0) FROM ledger WHERE user_id=? AND kind='purchase'", uid).Scan(&ledgerCount, &amount)
+	if membershipGrants != 0 || creditGrants != 1 || ledgerCount != 1 || amount != 350 {
+		t.Fatalf("unexpected grants/ledger: %d %d %d %d", membershipGrants, creditGrants, ledgerCount, amount)
+	}
+}
+
+func TestBillingCreditsRejectInvalidOrFailedPayments(t *testing.T) {
+	for _, mode := range []string{"signature", "amount", "merchant", "failed"} {
+		t.Run(mode, func(t *testing.T) {
+			s, _, uid, cookie := billingFixture(t)
+			o := billingPurchase(t, s, cookie, "credits_100", "wechat")
+			r, signature, code := billingSuccess(o), "test-valid", 500
+			switch mode {
+			case "signature":
+				signature, code = "bad", 400
+			case "amount":
+				r.AmountCents--
+			case "merchant":
+				r.MerchantID = "another-merchant"
+			case "failed":
+				r.TransactionStatus, r.OrderStatus, code = "F", "2", 200
+			}
+			mustStatus(t, billingCallback(s, r, signature), code)
+			var credits, grants, entries int
+			var until string
+			s.db.QueryRow("SELECT credits,membership_until FROM users WHERE id=?", uid).Scan(&credits, &until)
+			s.db.QueryRow("SELECT COUNT(*) FROM billing_credit_grants").Scan(&grants)
+			s.db.QueryRow("SELECT COUNT(*) FROM ledger WHERE kind='purchase'").Scan(&entries)
+			if credits != 10 || until != "" || grants != 0 || entries != 0 {
+				t.Fatal("invalid or failed payment granted credit", credits, until, grants, entries)
+			}
+		})
+	}
+}
+
+func TestBillingCreditsConcurrentDuplicateAndLateFailure(t *testing.T) {
+	s, _, uid, cookie := billingFixture(t)
+	o := billingPurchase(t, s, cookie, "credits_1000", "alipay")
+	r := billingSuccess(o)
+	var wg sync.WaitGroup
+	errors := make(chan error, 12)
+	for range 12 {
+		wg.Add(1)
+		go func() { defer wg.Done(); errors <- s.billingApply(r, "same-credit-notification") }()
+	}
+	wg.Wait()
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.TransactionStatus, r.OrderStatus = "F", "2"
+	mustStatus(t, billingCallback(s, r, "test-valid"), 200)
+	var credits, points, grants, entries int
+	var until, role string
+	s.db.QueryRow("SELECT credits,points,membership_until,role FROM users WHERE id=?", uid).Scan(&credits, &points, &until, &role)
+	s.db.QueryRow("SELECT COUNT(*) FROM billing_credit_grants").Scan(&grants)
+	s.db.QueryRow("SELECT COUNT(*) FROM ledger WHERE kind='purchase'").Scan(&entries)
+	if credits != 1010 || points != 0 || until != "" || role != "member" || grants != 1 || entries != 1 {
+		t.Fatalf("duplicate or late failure altered grants: %d %d %s %s %d %d", credits, points, until, role, grants, entries)
+	}
+}
+
+func TestBillingCreditSettlementRollsBackWholeTransaction(t *testing.T) {
+	s, _, uid, cookie := billingFixture(t)
+	o := billingPurchase(t, s, cookie, "credits_100", "alipay")
+	if _, err := s.db.Exec("CREATE TRIGGER credit_failure BEFORE UPDATE OF credits ON users BEGIN SELECT RAISE(ABORT,'test credit failure'); END"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.billingApply(billingSuccess(o), "rollback"); err == nil {
+		t.Fatal("expected settlement error")
+	}
+	var credits, grants, entries int
+	var status string
+	s.db.QueryRow("SELECT credits FROM users WHERE id=?", uid).Scan(&credits)
+	s.db.QueryRow("SELECT status FROM billing_orders WHERE id=?", o.ID).Scan(&status)
+	s.db.QueryRow("SELECT COUNT(*) FROM billing_credit_grants").Scan(&grants)
+	s.db.QueryRow("SELECT COUNT(*) FROM ledger WHERE kind='purchase'").Scan(&entries)
+	if credits != 10 || status != "pending" || grants != 0 || entries != 0 {
+		t.Fatalf("partial settlement survived rollback: %d %s %d %d", credits, status, grants, entries)
+	}
+}
+
+func TestBillingCreditMigrationPreservesExistingMembershipOrders(t *testing.T) {
+	s, f, uid, cookie := billingFixture(t)
+	o := billingPurchase(t, s, cookie, "monthly", "alipay")
+	if _, err := s.db.Exec("ALTER TABLE billing_orders DROP COLUMN credits"); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := InitBilling(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.billing = &billingService{provider: f, merchantID: "test-merchant"}
+	old, err := s.billingLoad(t.Context(), o.ID, uid)
+	if err != nil || old.Credits != 0 || old.Type != "membership" || old.Days != 30 {
+		t.Fatalf("legacy order changed: %+v %v", old, err)
+	}
+	if err := s.billingApply(billingSuccess(old), "legacy"); err != nil {
+		t.Fatal(err)
+	}
+	credit := billingPurchase(t, s, cookie, "credits_100", "alipay")
+	if err := s.billingApply(billingSuccess(credit), "migrated-credit"); err != nil {
+		t.Fatal(err)
+	}
+	var balance int
+	var until string
+	s.db.QueryRow("SELECT credits,membership_until FROM users WHERE id=?", uid).Scan(&balance, &until)
+	if balance != 110 || until != stamp(s.now().Add(30*24*time.Hour)) {
+		t.Fatal("migration failed to preserve independent products", balance, until)
+	}
+}

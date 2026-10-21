@@ -58,7 +58,7 @@ func TestReleaseDelayAcrossAllReadPathsAndBoundary(t *testing.T) {
 	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", g), nil, c), 200)
 	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", g), nil, c), 200)
 	var credits, used, n int
-	_ = s.db.QueryRow("SELECT credits,weekly_used FROM users WHERE id=?", id).Scan(&credits, &used)
+	_ = s.db.QueryRow("SELECT credits,daily_used FROM users WHERE id=?", id).Scan(&credits, &used)
 	_ = s.db.QueryRow("SELECT COUNT(*) FROM unlocks WHERE user_id=?", id).Scan(&n)
 	if credits != 10 || used != 1 || n != 1 {
 		t.Fatalf("boundary/repeat changed charge %d %d %d", credits, used, n)
@@ -150,7 +150,7 @@ func TestApprovalReleaseTimePreservedAndUnlockSurvivesDowngrade(t *testing.T) {
 	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", g), nil, reader), 200)
 	var credits int
 	_ = s.db.QueryRow("SELECT credits FROM users WHERE id=?", id).Scan(&credits)
-	if credits != 9 {
+	if credits != 10 {
 		t.Fatal("repeat unlocked charged", credits)
 	}
 }

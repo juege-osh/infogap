@@ -184,7 +184,7 @@ func TestLockedContentAndCreditRace(t *testing.T) {
 	g2 := gap(t, s, "featured", "published", nil)
 	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", g2), nil, c), 402)
 }
-func TestWeeklyQuotaAndRankGate(t *testing.T) {
+func TestDailyQuotaAndRankGate(t *testing.T) {
 	s := testServer(t)
 	id, c := account(t, s, "reader@example.org", "member", 10)
 	for range 4 {
@@ -192,9 +192,9 @@ func TestWeeklyQuotaAndRankGate(t *testing.T) {
 		mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", g), nil, c), 200)
 	}
 	var credits, used int
-	_ = s.db.QueryRow("SELECT credits,weekly_used FROM users WHERE id=?", id).Scan(&credits, &used)
-	if credits != 9 || used != 3 {
-		t.Fatalf("credits=%d weekly=%d", credits, used)
+	_ = s.db.QueryRow("SELECT credits,daily_used FROM users WHERE id=?", id).Scan(&credits, &used)
+	if credits != 7 || used != 1 {
+		t.Fatalf("credits=%d daily=%d", credits, used)
 	}
 	g := gap(t, s, "rare", "published", nil)
 	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", g), nil, c), 403)
@@ -211,7 +211,7 @@ func TestReviewExactlyOnceAndRefund(t *testing.T) {
 	_, admin := account(t, s, founderEmail, "admin", 10)
 	author, _ := account(t, s, "writer@example.org", "member", 10)
 	reader, ck := account(t, s, "reader@example.org", "member", 10)
-	_, _ = s.db.Exec("UPDATE users SET points=6500 WHERE id=?", reader)
+	_, _ = s.db.Exec("UPDATE users SET points=6500,day_key=?,daily_used=20 WHERE id=?", dayKey(s.now()), reader)
 	g := gap(t, s, "featured", "pending", author)
 	path := fmt.Sprintf("/api/admin/review/%d", g)
 	in := map[string]string{"action": "approve", "level": "featured", "note": "已核对原始论文与公开材料"}

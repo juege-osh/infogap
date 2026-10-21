@@ -1,0 +1,448 @@
+{
+  "schema_version": 1,
+  "purpose": "候选来源核验记录，未改正式来源配置、未入生产库。enabled=false仅避免误导为已接通。",
+  "checked_at": "2026-10-21T09:33:35.399492+00:00",
+  "policy": "全部先进入待审，保留官方出处；不把HTTP200空页当成功，不自动发布。",
+  "sources": [
+    {
+      "id": "cn-moa-news",
+      "name": "农业农村部政务动态",
+      "url": "https://www.moa.gov.cn/xw/zwdt/",
+      "kind": "html",
+      "category": "农业与食品",
+      "article_pattern": "^/xw/zwdt/\\d{6}/t\\d{8}_\\d+\\.htm$",
+      "notes": "栏目含置顶公告与机关动态；审核时优先技术、食品安全、种业和实施政策。",
+      "evidence": "unverified",
+      "source_visibility": "public",
+      "interval_hours": 12,
+      "enabled": false,
+      "verification": {
+        "checked_at": "2026-10-21T09:33:30.114436+00:00",
+        "location": "local Mac direct HTTPS request; production connectivity not asserted",
+        "http_status": 200,
+        "final_url": "https://www.moa.gov.cn/xw/zwdt/",
+        "bytes": 61557,
+        "content_type": "text/html",
+        "unique_matching_articles": 25,
+        "samples": [
+          {
+            "title": "关于中央第二生态环境保护督察组作风纪律监督举报方式的公告",
+            "url": "https://www.moa.gov.cn/xw/zwdt/202610/t20261015_6488642.htm"
+          },
+          {
+            "title": "中央第二生态环境保护督察组督察农业农村部动员会在北京召开",
+            "url": "https://www.moa.gov.cn/xw/zwdt/202610/t20261015_6488640.htm"
+          }
+        ],
+        "readable": true,
+        "robots": {
+          "url": "https://www.moa.gov.cn/robots.txt",
+          "http_status": 200,
+          "html_instead_of_rules": false,
+          "python_robotparser_allows_source": false
+        }
+      }
+    },
+    {
+      "id": "cn-gov-policy",
+      "name": "中国政府网政策",
+      "url": "https://www.gov.cn/zhengce/",
+      "kind": "html",
+      "category": "政治与公共政策",
+      "article_pattern": "^/zhengce/(?:content/)?\\d{6}/content_\\d+\\.htm$",
+      "notes": "主政策栏目有静态文章链接；/zhengce/zuixin/ 在本次直接请求中无文章链接。",
+      "evidence": "unverified",
+      "source_visibility": "public",
+      "interval_hours": 12,
+      "enabled": false,
+      "verification": {
+        "checked_at": "2026-10-21T09:33:30.114776+00:00",
+        "location": "local Mac direct HTTPS request; production connectivity not asserted",
+        "http_status": 200,
+        "final_url": "https://www.gov.cn/zhengce/",
+        "bytes": 40100,
+        "content_type": "text/html",
+        "unique_matching_articles": 14,
+        "samples": [
+          {
+            "title": "中共中央 国务院关于发展新质生产力的意见",
+            "url": "https://www.gov.cn/zhengce/202610/content_7082820.htm"
+          },
+          {
+            "title": "国务院关于《国家残疾预防行动计划（2026—2030年）》的批复",
+            "url": "https://www.gov.cn/zhengce/content/202610/content_7082737.htm"
+          }
+        ],
+        "readable": true,
+        "robots": {
+          "url": "https://www.gov.cn/robots.txt",
+          "http_status": 200,
+          "html_instead_of_rules": false,
+          "python_robotparser_allows_source": true
+        }
+      }
+    },
+    {
+      "id": "cn-mca-announcements",
+      "name": "民政部通知公告",
+      "url": "https://www.mca.gov.cn/n152/n165/index.html",
+      "kind": "html",
+      "category": "社会民生",
+      "article_pattern": "^/n152/n165/c\\d+/content\\.html$",
+      "notes": "href末尾存在空格，需先strip再解析；过滤招聘、人事、公示类低相关条目。",
+      "evidence": "unverified",
+      "source_visibility": "public",
+      "interval_hours": 12,
+      "enabled": false,
+      "verification": {
+        "checked_at": "2026-10-21T09:33:30.114876+00:00",
+        "location": "local Mac direct HTTPS request; production connectivity not asserted",
+        "http_status": 200,
+        "final_url": "https://www.mca.gov.cn/n152/n165/index.html",
+        "bytes": 40269,
+        "content_type": "text/html",
+        "unique_matching_articles": 15,
+        "samples": [
+          {
+            "title": "民政部、人力资源社会保障部、农业农村部联合印发《关于加强农村助老员队伍建设的通知》",
+            "url": "https://www.mca.gov.cn/n152/n165/c1662004999980013632/content.html"
+          },
+          {
+            "title": "民政部2026年第三季度政府网站和政务新媒体检查情况",
+            "url": "https://www.mca.gov.cn/n152/n165/c1662004999980014017/content.html"
+          }
+        ],
+        "readable": true,
+        "robots": {
+          "url": "https://www.mca.gov.cn/robots.txt",
+          "http_status": 404,
+          "error": "HTTP Error 404: Not Found"
+        }
+      }
+    },
+    {
+      "id": "cn-mot-news",
+      "name": "交通运输部交通要闻",
+      "url": "https://www.mot.gov.cn/xinwen/jiaotongyaowen/index.html",
+      "kind": "html",
+      "category": "交通与基建",
+      "article_pattern": "^/xinwen/jiaotongyaowen/\\d{6}/t\\d{8}_\\d+\\.html$",
+      "notes": "同页包含较多历史文章，按页面顺序限量采集；标题内有日期和空白需清理。",
+      "evidence": "unverified",
+      "source_visibility": "public",
+      "interval_hours": 12,
+      "enabled": false,
+      "verification": {
+        "checked_at": "2026-10-21T09:33:30.114997+00:00",
+        "location": "local Mac direct HTTPS request; production connectivity not asserted",
+        "http_status": 200,
+        "final_url": "https://www.mot.gov.cn/xinwen/jiaotongyaowen/index.html",
+        "bytes": 229996,
+        "content_type": "text/html",
+        "unique_matching_articles": 500,
+        "samples": [
+          {
+            "title": "堤岸生新绿 白鹭伴舟行——乘船探访漓江“美丽航道” 2026-10-21",
+            "url": "https://www.mot.gov.cn/xinwen/jiaotongyaowen/202610/t20261021_4226351.html"
+          },
+          {
+            "title": "共建开放协同的全球航空新生态 2026-10-21",
+            "url": "https://www.mot.gov.cn/xinwen/jiaotongyaowen/202610/t20261021_4226350.html"
+          }
+        ],
+        "readable": true,
+        "robots": {
+          "url": "https://www.mot.gov.cn/robots.txt",
+          "http_status": 404,
+          "error": "HTTP Error 404: Not Found"
+        }
+      }
+    },
+    {
+      "id": "cn-ndrc-news",
+      "name": "国家发展改革委新闻发布",
+      "url": "https://www.ndrc.gov.cn/xwdt/xwfb/",
+      "kind": "html",
+      "category": "经济与产业",
+      "article_pattern": "^/xwdt/xwfb/\\d{6}/t\\d{8}_\\d+\\.html$",
+      "notes": "包含价格调整、产业政策和新闻发布会；不从标题推断政策生效范围。",
+      "evidence": "unverified",
+      "source_visibility": "public",
+      "interval_hours": 12,
+      "enabled": false,
+      "verification": {
+        "checked_at": "2026-10-21T09:33:30.115070+00:00",
+        "location": "local Mac direct HTTPS request; production connectivity not asserted",
+        "http_status": 200,
+        "final_url": "https://www.ndrc.gov.cn/xwdt/xwfb/",
+        "bytes": 11017,
+        "content_type": "text/html",
+        "unique_matching_articles": 25,
+        "samples": [
+          {
+            "title": "国家发展改革委举行10月份新闻发布会",
+            "url": "https://www.ndrc.gov.cn/xwdt/xwfb/202610/t20261020_1408278.html"
+          },
+          {
+            "title": "2026年10月15日国内成品油价格不作调整",
+            "url": "https://www.ndrc.gov.cn/xwdt/xwfb/202610/t20261015_1408170.html"
+          }
+        ],
+        "readable": true,
+        "robots": {
+          "url": "https://www.ndrc.gov.cn/robots.txt",
+          "http_status": 403,
+          "error": "HTTP Error 403: Forbidden"
+        }
+      }
+    },
+    {
+      "id": "cn-mee-news",
+      "name": "生态环境部环境要闻",
+      "url": "https://www.mee.gov.cn/ywdt/hjywnews/",
+      "kind": "html",
+      "category": "能源与环境",
+      "article_pattern": "^/ywdt/hjywnews/\\d{6}/t\\d{8}_\\d+\\.shtml$",
+      "notes": "图片和文字可能重复链接同一文章，按URL去重。",
+      "evidence": "unverified",
+      "source_visibility": "public",
+      "interval_hours": 12,
+      "enabled": false,
+      "verification": {
+        "checked_at": "2026-10-21T09:33:30.115124+00:00",
+        "location": "local Mac direct HTTPS request; production connectivity not asserted",
+        "http_status": 200,
+        "final_url": "https://www.mee.gov.cn/ywdt/hjywnews/",
+        "bytes": 47169,
+        "content_type": "text/html",
+        "unique_matching_articles": 6,
+        "samples": [
+          {
+            "title": "",
+            "url": "https://www.mee.gov.cn/ywdt/hjywnews/202610/t20261020_1183416.shtml"
+          },
+          {
+            "title": "生态环境部一周要闻（10.11—10.17）",
+            "url": "https://www.mee.gov.cn/ywdt/hjywnews/202610/t20261018_1183205.shtml"
+          }
+        ],
+        "readable": true,
+        "robots": {
+          "url": "https://www.mee.gov.cn/robots.txt",
+          "http_status": 200,
+          "html_instead_of_rules": true,
+          "python_robotparser_allows_source": true
+        }
+      }
+    },
+    {
+      "id": "cn-cnsa-news",
+      "name": "国家航天局新闻",
+      "url": "https://www.cnsa.gov.cn/n6758823/n6758838/index.html",
+      "kind": "html",
+      "category": "航空航天",
+      "article_pattern": "^/n6758823/n6758838/c\\d+/content\\.html$",
+      "notes": "文章卡片包含标题、日期与摘要；不要把整张卡片文本当作标题。",
+      "evidence": "unverified",
+      "source_visibility": "public",
+      "interval_hours": 12,
+      "enabled": false,
+      "verification": {
+        "checked_at": "2026-10-21T09:33:30.823694+00:00",
+        "location": "local Mac direct HTTPS request; production connectivity not asserted",
+        "http_status": 200,
+        "final_url": "https://www.cnsa.gov.cn/n6758823/n6758838/index.html",
+        "bytes": 69580,
+        "content_type": "text/html",
+        "unique_matching_articles": 12,
+        "samples": [
+          {
+            "title": "朱雀二号改进型遥四运载火箭发射成功2026-10-14 朱雀二号改进型遥四运载火箭... 北京时间2026年10月14日19时40分，朱雀二号改进型遥四运载火箭在东风商业航天创新试验区发射升空，将搭载的国星宇航星时代-39、44~50星，光传-03、04星共10颗卫星顺利送入预定轨道，飞行试验任务取得圆满成功... 北",
+            "url": "https://www.cnsa.gov.cn/n6758823/n6758838/c10780180/content.html"
+          },
+          {
+            "title": "它们的名字叫“长征”2026-10-13 它们的名字叫“长征” 四川大凉山深处的西昌卫星发射基地，一枚枚以“长征”命名的运载火箭奔赴浩瀚宇宙；青岛湾畔的中国人民解放军海军博物馆，我国第一艘核潜艇“长征一号”静静陈列。 一个托举中国航天逐梦寰宇，一个筑牢我国水下国防基石，共同的名... 四川大凉山深处的西昌卫星发射基地，",
+            "url": "https://www.cnsa.gov.cn/n6758823/n6758838/c10780200/content.html"
+          }
+        ],
+        "readable": true,
+        "robots": {
+          "url": "https://www.cnsa.gov.cn/robots.txt",
+          "http_status": 404,
+          "error": "HTTP Error 404: Not Found"
+        }
+      }
+    },
+    {
+      "id": "uk-mod-updates",
+      "name": "英国国防部公开更新",
+      "url": "https://www.gov.uk/government/organisations/ministry-of-defence.atom",
+      "kind": "rss",
+      "category": "军事与国防",
+      "notes": "官方公开Atom。仅收公开政策、科研、装备进展；机关行政动态需筛选。",
+      "evidence": "unverified",
+      "source_visibility": "public",
+      "interval_hours": 12,
+      "enabled": false,
+      "verification": {
+        "checked_at": "2026-10-21T09:33:32.035239+00:00",
+        "location": "local Mac direct HTTPS request; production connectivity not asserted",
+        "http_status": 200,
+        "final_url": "https://www.gov.uk/government/organisations/ministry-of-defence.atom",
+        "bytes": 12717,
+        "content_type": "application/atom+xml; charset=utf-8",
+        "parsed_items": 20,
+        "samples": [
+          {
+            "title": "Transparency data: MOD: workforce management information January to December 2026",
+            "url": "https://www.gov.uk/government/publications/mod-workforce-management-information-january-to-december-2026"
+          },
+          {
+            "title": "Operational update 20 October – UK military support to the Kingdom of Saudi Arabia",
+            "url": "https://www.gov.uk/government/news/operational-update-20-october-uk-military-support-to-the-kingdom-of-saudi-arabia"
+          }
+        ],
+        "readable": true,
+        "robots": {
+          "url": "https://www.gov.uk/robots.txt",
+          "http_status": 200,
+          "html_instead_of_rules": false,
+          "python_robotparser_allows_source": true
+        }
+      }
+    },
+    {
+      "id": "us-federal-register",
+      "name": "美国联邦公报",
+      "url": "https://www.federalregister.gov/api/v1/documents.rss",
+      "kind": "rss",
+      "category": "法律法规",
+      "notes": "官方规则、拟议规则及通知。审核时区分拟议与生效状态并保留适用地区。",
+      "evidence": "unverified",
+      "source_visibility": "public",
+      "interval_hours": 12,
+      "enabled": false,
+      "verification": {
+        "checked_at": "2026-10-21T09:33:32.880666+00:00",
+        "location": "local Mac direct HTTPS request; production connectivity not asserted",
+        "http_status": 200,
+        "final_url": "https://www.federalregister.gov/api/v1/documents.rss",
+        "bytes": 189254,
+        "content_type": "application/rss+xml; charset=utf-8",
+        "parsed_items": 200,
+        "samples": [
+          {
+            "title": "Potential Designation of Chartered Financial Analyst Designation as Qualifying Natural Persons for Accredited Investor Status",
+            "url": "https://www.federalregister.gov/documents/2026/10/21/C1-2026-20311/potential-designation-of-chartered-financial-analyst-designation-as-qualifying-natural-persons-for"
+          },
+          {
+            "title": "Hardwood and Decorative Plywood From the Socialist Republic of Vietnam: Final Affirmative Determination of Sales at Less Than Fair Value and Final Negative Determination of Critical Circumstances",
+            "url": "https://www.federalregister.gov/documents/2026/10/21/C1-2026-14614/hardwood-and-decorative-plywood-from-the-socialist-republic-of-vietnam-final-affirmative"
+          }
+        ],
+        "readable": true,
+        "robots": {
+          "url": "https://www.federalregister.gov/robots.txt",
+          "http_status": 200,
+          "html_instead_of_rules": false,
+          "python_robotparser_allows_source": true
+        }
+      }
+    },
+    {
+      "id": "who-news",
+      "name": "世界卫生组织新闻",
+      "url": "https://www.who.int/rss-feeds/news-english.xml",
+      "kind": "rss",
+      "category": "医疗健康",
+      "notes": "本次Feed有旧文章修改日期排在前列，不将RSS pubDate一概视为原始发布日期；审核需看原文日期。",
+      "evidence": "unverified",
+      "source_visibility": "public",
+      "interval_hours": 12,
+      "enabled": false,
+      "verification": {
+        "checked_at": "2026-10-21T09:33:32.919716+00:00",
+        "location": "local Mac direct HTTPS request; production connectivity not asserted",
+        "http_status": 200,
+        "final_url": "https://www.who.int/rss-feeds/news-english.xml",
+        "bytes": 917366,
+        "content_type": "application/rss+xml",
+        "parsed_items": 112,
+        "samples": [
+          {
+            "title": "New WHO technical package to help countries improve health data for COVID-19 response and beyond",
+            "url": "https://www.who.int/news/item/27-08-2020-new-who-technical-package-health-data-for-covid-19-response"
+          },
+          {
+            "title": "WHO statement on notification of withdrawal of the United States",
+            "url": "https://www.who.int/news/item/24-01-2026-who-statement-on-notification-of-withdrawal-of-the-united-states"
+          }
+        ],
+        "readable": true,
+        "robots": {
+          "url": "https://www.who.int/robots.txt",
+          "http_status": 200,
+          "html_instead_of_rules": false,
+          "python_robotparser_allows_source": true
+        }
+      }
+    }
+  ],
+  "restricted_candidates": [
+    {
+      "name": "教育部工作动态",
+      "url": "https://www.moe.gov.cn/jyb_xwfb/gzdt_gzdt/",
+      "http_status": 200,
+      "final_url": "http://www.moe.gov.cn/jyb_xwfb/gzdt_gzdt/",
+      "article_pattern": "^/jyb_xwfb/gzdt_gzdt/(?:s5987|moe_1485)/\\d{6}/t\\d{8}_\\d+\\.html$",
+      "observed_articles": 20,
+      "reason": "HTTPS降级到HTTP；现有采集器有意拒绝降级，不应直接启用。"
+    },
+    {
+      "name": "国防部权威发布",
+      "url": "https://www.mod.gov.cn/gfbw/qwfb/",
+      "http_status": null,
+      "article_pattern": "^/gfbw/qwfb/(?:yw_214049|jt_214051)/\\d+\\.html$",
+      "reason": "本地HTTPS证书主机名验证失败。HTTP可读不等于HTTPS可用，不关闭TLS验证。"
+    },
+    {
+      "name": "司法部政策解读",
+      "url": "https://www.moj.gov.cn/zcjd/",
+      "http_status": 302,
+      "reason": "直接读取出现302循环。"
+    },
+    {
+      "name": "应急管理部部门动态",
+      "url": "https://www.mem.gov.cn/xw/bndt/",
+      "http_status": 200,
+      "observed_articles": 0,
+      "reason": "直接读取无文章链接，不能算已接通。"
+    },
+    {
+      "name": "国家卫生健康委新闻动态",
+      "url": "https://www.nhc.gov.cn/wjw/xwdt/list.shtml",
+      "http_status": 412,
+      "reason": "直接请求被限制。"
+    },
+    {
+      "name": "中国政府网最新政策子页",
+      "url": "https://www.gov.cn/zhengce/zuixin/",
+      "http_status": 200,
+      "observed_articles": 0,
+      "reason": "子页无静态文章链接，改用已实测的政策主栏目。"
+    },
+    {
+      "name": "公安部新闻",
+      "url": "https://www.mps.gov.cn/n2254314/n6409334/index.html",
+      "http_status": 521,
+      "reason": "直接请求失败。"
+    },
+    {
+      "name": "最高人民法院司法解释栏目",
+      "url": "https://www.court.gov.cn/fabu-gengduo-16.html",
+      "http_status": 200,
+      "observed_articles": 0,
+      "reason": "直接读取无文章链接，不能算已接通。"
+    }
+  ]
+}

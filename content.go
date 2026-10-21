@@ -32,6 +32,7 @@ type Gap struct {
 	Author           string        `json:"author"`
 	AuthorID         sql.NullInt64 `json:"-"`
 	Unlocked         bool          `json:"unlocked"`
+	UnlockCost       int           `json:"unlock_cost"`
 	Saved            bool          `json:"saved"`
 	ReviewNote       string        `json:"review_note,omitempty"`
 	Rewarded         int           `json:"-"`
@@ -47,6 +48,7 @@ func gapScan(r scanner, u *User) (*Gap, error) {
 		return nil, err
 	}
 	g.Tags = []string{}
+	g.UnlockCost = unlockCosts[g.Level]
 	_ = json.Unmarshal([]byte(tags), &g.Tags)
 	if g.Tags == nil {
 		g.Tags = []string{}
@@ -220,6 +222,13 @@ func (s *server) unlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.decorate(u)
+	now := s.now()
+	day := dayKey(now)
+	// Fix the charge to one day even when this request straddles local midnight.
+	u.DailyRemaining = u.DailyAllowance
+	if u.Day == day {
+		u.DailyRemaining = max(0, u.DailyAllowance-u.DailyUsed)
+	}
 	g, err := gapScan(tx.QueryRow(gapSelect+"WHERE g.id=?", u.ID, u.ID, id), u)
 	if err != nil || !s.canSee(g, u) {
 		fail(w, 404, "信息不存在")
@@ -245,30 +254,37 @@ func (s *server) unlock(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	cost := 1
+	totalCost := unlockCosts[g.Level]
+	if totalCost <= 0 {
+		fail(w, 409, "内容等级尚未确定，暂不能解锁")
+		return
+	}
+	dailyCost := min(totalCost, u.DailyRemaining)
+	cost := totalCost - dailyCost
 	kind := "credit"
-	now := s.now()
-	week := weekKey(now)
-	if g.Level == "ordinary" && u.WeeklyRemaining > 0 {
-		cost = 0
-		kind = "weekly"
-		used := u.WeeklyUsed + 1
-		if u.Week != week {
-			used = 1
-		}
-		_, err = tx.Exec("UPDATE users SET week_key=?,weekly_used=? WHERE id=?", week, used, u.ID)
-	} else {
-		if u.Credits < 1 {
-			fail(w, 402, "解锁额度不足，贡献一条有效信息差可获得 100 次解锁")
-			return
-		}
-		_, err = tx.Exec("UPDATE users SET credits=credits-1 WHERE id=? AND credits>=1", u.ID)
+	if u.Credits < cost {
+		fail(w, 402, "阅读额度不足。有效贡献可获得 100 点，也可购买阅读额度。")
+		return
 	}
-	if err == nil {
-		_, err = tx.Exec("INSERT INTO unlocks(user_id,gap_id,cost,kind,created_at) VALUES(?,?,?,?,?)", u.ID, id, cost, kind, stamp(now))
+	used := u.DailyUsed
+	if u.Day != day {
+		used = 0
 	}
+	if dailyCost > 0 {
+		kind = "mixed"
+	}
+	if cost == 0 {
+		kind = "daily"
+	}
+	_, err = tx.Exec("UPDATE users SET credits=credits-?,day_key=?,daily_used=? WHERE id=? AND credits>=?", cost, day, used+dailyCost, u.ID, cost)
 	if err == nil {
-		_, err = tx.Exec("INSERT INTO ledger(user_id,gap_id,kind,amount,created_at,note) VALUES(?,?,?,?,?,?)", u.ID, id, "unlock", -cost, stamp(now), map[string]string{"credit": "贡献额度解锁", "weekly": "本周免费额度解锁"}[kind])
+		_, err = tx.Exec("INSERT INTO unlocks(user_id,gap_id,cost,kind,created_at,daily_cost,day_key) VALUES(?,?,?,?,?,?,?)", u.ID, id, cost, kind, stamp(now), dailyCost, day)
+	}
+	if err == nil && dailyCost > 0 {
+		_, err = tx.Exec("INSERT INTO ledger(user_id,gap_id,kind,amount,created_at,note) VALUES(?,?,?,?,?,?)", u.ID, id, "daily_unlock", -dailyCost, stamp(now), "使用今日赠送额度解锁")
+	}
+	if err == nil && cost > 0 {
+		_, err = tx.Exec("INSERT INTO ledger(user_id,gap_id,kind,amount,created_at,note) VALUES(?,?,?,?,?,?)", u.ID, id, "unlock", -cost, stamp(now), "使用长期阅读额度解锁")
 	}
 	if err != nil || tx.Commit() != nil {
 		fail(w, 500, "解锁失败，未扣除额度")

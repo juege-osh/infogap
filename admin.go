@@ -102,7 +102,23 @@ func (s *server) overview(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	rows.Close()
-	send(w, 200, map[string]any{"stats": s.stats(u), "queue": queue, "content": content, "users": users, "invites": invites, "sources": sources, "reports": reports})
+	summaryJobs := map[string]int{"pending": 0, "completed": 0, "failed": 0, "too_long": 0, "edited": 0, "processing": 0}
+	rows, e = s.db.Query("SELECT state,COUNT(*) FROM summary_jobs GROUP BY state")
+	if e != nil {
+		fail(w, 500, "读取精炼状态失败")
+		return
+	}
+	for rows.Next() {
+		var state string
+		var count int
+		if rows.Scan(&state, &count) == nil {
+			if _, known := summaryJobs[state]; known {
+				summaryJobs[state] = count
+			}
+		}
+	}
+	rows.Close()
+	send(w, 200, map[string]any{"stats": s.stats(u), "queue": queue, "content": content, "users": users, "invites": invites, "sources": sources, "reports": reports, "summary_jobs": summaryJobs})
 }
 func (s *server) newInvite(w http.ResponseWriter, r *http.Request) {
 	u := s.staff(w, r, true)
@@ -253,37 +269,7 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 		}
 		_, e = tx.Exec("UPDATE gaps SET status='disputed',review_note=?,updated_at=? WHERE id=?", in.Note, at, id)
 		if e == nil {
-			type refund struct {
-				user int64
-				cost int
-			}
-			refunds := []refund{}
-			rows, err := tx.Query("SELECT user_id,cost FROM unlocks WHERE gap_id=? AND refunded=0 AND cost>0", id)
-			if err != nil {
-				e = err
-			} else {
-				for rows.Next() {
-					var a refund
-					if err = rows.Scan(&a.user, &a.cost); err != nil {
-						e = err
-						break
-					}
-					refunds = append(refunds, a)
-				}
-				rows.Close()
-			}
-			for _, a := range refunds {
-				if e != nil {
-					break
-				}
-				_, e = tx.Exec("UPDATE users SET credits=credits+? WHERE id=?", a.cost, a.user)
-				if e == nil {
-					_, e = tx.Exec("INSERT INTO ledger(user_id,gap_id,kind,amount,created_at,note) VALUES(?,?,'refund',?,?,'信息证伪，退还解锁额度')", a.user, id, a.cost, at)
-				}
-			}
-			if e == nil {
-				_, e = tx.Exec("UPDATE unlocks SET refunded=1 WHERE gap_id=?", id)
-			}
+			e = refundReadingCredits(tx, id, s.now())
 			if e == nil {
 				_, e = tx.Exec("UPDATE reports SET status='resolved' WHERE gap_id=?", id)
 			}

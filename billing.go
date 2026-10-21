@@ -28,19 +28,29 @@ type billingService struct {
 type billingPlan struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
+	Type        string `json:"type"`
 	AmountCents int64  `json:"amount_cents"`
 	Days        int    `json:"days"`
+	Credits     int    `json:"credits"`
 }
 
-var billingPlans = []billingPlan{{"monthly", "30天订阅会员", 990, 30}, {"yearly", "365天订阅会员", 9900, 365}}
+var billingPlans = []billingPlan{
+	{ID: "monthly", Name: "30天订阅会员", Type: "membership", AmountCents: 990, Days: 30},
+	{ID: "yearly", Name: "365天订阅会员", Type: "membership", AmountCents: 9900, Days: 365},
+	{ID: "credits_100", Name: "100阅读额度", Type: "credits", AmountCents: 990, Credits: 100},
+	{ID: "credits_350", Name: "350阅读额度", Type: "credits", AmountCents: 2900, Credits: 350},
+	{ID: "credits_1000", Name: "1000阅读额度", Type: "credits", AmountCents: 7900, Credits: 1000},
+}
 
 type billingOrder struct {
 	ID              string `json:"id"`
 	UserID          int64  `json:"-"`
 	Plan            string `json:"plan"`
 	Name            string `json:"name"`
+	Type            string `json:"type"`
 	AmountCents     int64  `json:"amount_cents"`
 	Days            int    `json:"days"`
+	Credits         int    `json:"credits"`
 	Channel         string `json:"channel"`
 	Status          string `json:"status"`
 	PayURL          string `json:"pay_url"`
@@ -57,7 +67,7 @@ type billingOrder struct {
 const billingSchema = `
 CREATE TABLE IF NOT EXISTS billing_orders (
  id TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id),plan TEXT NOT NULL,name TEXT NOT NULL,
- amount_cents INTEGER NOT NULL CHECK(amount_cents>0),days INTEGER NOT NULL CHECK(days>0),channel TEXT NOT NULL CHECK(channel IN ('alipay','wechat')),
+ amount_cents INTEGER NOT NULL CHECK(amount_cents>0),days INTEGER NOT NULL CHECK(days>0),credits INTEGER NOT NULL DEFAULT 0 CHECK(credits>=0),channel TEXT NOT NULL CHECK(channel IN ('alipay','wechat')),
  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','success','failed','expired')),
  pay_payload TEXT NOT NULL DEFAULT '',platform_trade_no TEXT NOT NULL DEFAULT '',expires_at TEXT NOT NULL,paid_at TEXT NOT NULL DEFAULT '',
  created_at TEXT NOT NULL,updated_at TEXT NOT NULL,last_checked_at TEXT NOT NULL DEFAULT '',membership_until TEXT NOT NULL DEFAULT ''
@@ -70,11 +80,18 @@ CREATE TABLE IF NOT EXISTS billing_events (
 );
 CREATE TABLE IF NOT EXISTS billing_grants (
  order_id TEXT PRIMARY KEY REFERENCES billing_orders(id),user_id INTEGER NOT NULL REFERENCES users(id),starts_at TEXT NOT NULL,ends_at TEXT NOT NULL,created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS billing_credit_grants (
+ order_id TEXT PRIMARY KEY REFERENCES billing_orders(id),user_id INTEGER NOT NULL REFERENCES users(id),
+ credits INTEGER NOT NULL CHECK(credits>0),ledger_id INTEGER NOT NULL UNIQUE REFERENCES ledger(id),created_at TEXT NOT NULL
 );`
 
 // InitBilling never contacts the payment gateway. Incomplete configuration disables checkout.
 func InitBilling(s *server) error {
 	if _, err := s.db.Exec(billingSchema); err != nil {
+		return err
+	}
+	if err := migrateBillingCredits(s.db); err != nil {
 		return err
 	}
 	b := &billingService{disabledReason: "支付暂未开通，请稍后再试"}
@@ -93,6 +110,31 @@ func InitBilling(s *server) error {
 	}
 	b.provider, b.merchantID, b.disabledReason = c, c.huifuID, ""
 	return nil
+}
+
+func migrateBillingCredits(db *sql.DB) error {
+	rows, err := db.Query("PRAGMA table_info(billing_orders)")
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var cid, required, primary int
+		var name, kind string
+		var defaultValue any
+		if err = rows.Scan(&cid, &name, &kind, &required, &defaultValue, &primary); err != nil {
+			rows.Close()
+			return err
+		}
+		found = found || name == "credits"
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil || found {
+		return err
+	}
+	_, err = db.Exec("ALTER TABLE billing_orders ADD COLUMN credits INTEGER NOT NULL DEFAULT 0 CHECK(credits>=0)")
+	return err
 }
 func (s *server) billingRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/billing/plans", s.billingCatalog)
@@ -123,13 +165,17 @@ func (s *server) billingCatalog(w http.ResponseWriter, r *http.Request) {
 	send(w, 200, map[string]any{"enabled": s.billingEnabled(), "disabled_reason": reason, "plans": billingPlans, "channels": []string{"alipay", "wechat"}, "auto_renew": false})
 }
 
-const billingOrderCols = "id,user_id,plan,name,amount_cents,days,channel,status,pay_payload,platform_trade_no,expires_at,paid_at,created_at,membership_until,last_checked_at"
+const billingOrderCols = "id,user_id,plan,name,amount_cents,days,credits,channel,status,pay_payload,platform_trade_no,expires_at,paid_at,created_at,membership_until,last_checked_at"
 
 func billingScan(row scanner) (*billingOrder, error) {
 	o := &billingOrder{}
-	err := row.Scan(&o.ID, &o.UserID, &o.Plan, &o.Name, &o.AmountCents, &o.Days, &o.Channel, &o.Status, &o.QRPayload, &o.PlatformTradeNo, &o.ExpiresAt, &o.PaidAt, &o.CreatedAt, &o.MembershipUntil, &o.LastCheckedAt)
+	err := row.Scan(&o.ID, &o.UserID, &o.Plan, &o.Name, &o.AmountCents, &o.Days, &o.Credits, &o.Channel, &o.Status, &o.QRPayload, &o.PlatformTradeNo, &o.ExpiresAt, &o.PaidAt, &o.CreatedAt, &o.MembershipUntil, &o.LastCheckedAt)
 	if err != nil {
 		return nil, err
+	}
+	o.Type = "membership"
+	if o.Credits > 0 {
+		o.Type, o.Days = "credits", 0
 	}
 	if o.Status != "pending" {
 		o.QRPayload = ""
@@ -219,7 +265,13 @@ func (s *server) billingCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	id := newPaymentNumber("P")
 	expires := now.Add(30 * time.Minute)
-	_, err = s.db.ExecContext(r.Context(), `INSERT INTO billing_orders(id,user_id,plan,name,amount_cents,days,channel,expires_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, id, u.ID, plan.ID, plan.Name, plan.AmountCents, plan.Days, req.Channel, stamp(expires), stamp(now), stamp(now))
+	storedDays := plan.Days
+	if plan.Type == "credits" {
+		// Old databases require days>0. Credits are the immutable product discriminator;
+		// this compatibility placeholder is never granted or exposed as membership days.
+		storedDays = 1
+	}
+	_, err = s.db.ExecContext(r.Context(), `INSERT INTO billing_orders(id,user_id,plan,name,amount_cents,days,credits,channel,expires_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, id, u.ID, plan.ID, plan.Name, plan.AmountCents, storedDays, plan.Credits, req.Channel, stamp(expires), stamp(now), stamp(now))
 	if err != nil {
 		fail(w, 500, "订单暂时无法创建")
 		return
@@ -417,6 +469,24 @@ func (s *server) billingApply(result huifuPaymentResult, eventKey string) error 
 	now := s.now()
 	if result.TransactionStatus == "F" {
 		_, err = tx.Exec("UPDATE billing_orders SET status='failed',updated_at=? WHERE id=?", stamp(now), o.ID)
+	} else if o.Credits > 0 {
+		// Price and quantity come from the stored order, never from callback/client input.
+		// Both the platform trade and the order grant must be unique before any credit sticks.
+		if _, err = tx.Exec("UPDATE billing_orders SET status='success',platform_trade_no=?,paid_at=?,updated_at=? WHERE id=?", result.PlatformTradeNo, stamp(now), stamp(now), o.ID); err != nil {
+			return err
+		}
+		entry, e := tx.Exec("INSERT INTO ledger(user_id,kind,amount,created_at,note) VALUES(?,'purchase',?,?,?)", o.UserID, o.Credits, stamp(now), "购买阅读额度 · "+o.ID)
+		if e != nil {
+			return e
+		}
+		ledgerID, e := entry.LastInsertId()
+		if e != nil {
+			return e
+		}
+		if _, err = tx.Exec("INSERT INTO billing_credit_grants(order_id,user_id,credits,ledger_id,created_at) VALUES(?,?,?,?,?)", o.ID, o.UserID, o.Credits, ledgerID, stamp(now)); err != nil {
+			return err
+		}
+		_, err = tx.Exec("UPDATE users SET credits=credits+? WHERE id=?", o.Credits, o.UserID)
 	} else {
 		var currentUntil string
 		if err = tx.QueryRow("SELECT membership_until FROM users WHERE id=?", o.UserID).Scan(&currentUntil); err != nil {

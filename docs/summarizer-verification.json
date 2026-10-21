@@ -1,0 +1,41 @@
+{
+  "source_url": "https://www.gov.cn/zhengce/202610/content_7082820.htm",
+  "http_status": 200,
+  "input_chars": 4684,
+  "content_hash": "51d1470228d54c0da043d2a3b90a3f01c3e9fa7da3e70eba65a65bfa3075763e",
+  "cached_status": "cached",
+  "cached_usage": {
+    "model_calls": 0
+  },
+  "summary_chars": 109,
+  "body_chars": 758,
+  "facts_in_output": {
+    "先使用后付费": true,
+    "中小微企业": true,
+    "核聚变": true,
+    "脑机接口": true
+  },
+  "source_fact_terms_verified": [
+    "先使用后付费",
+    "中小微企业",
+    "核聚变",
+    "脑机接口"
+  ],
+  "notes": [
+    "源码与服务器help确认stdin追加输入",
+    "无工具调用；保留政策目标与已实现效果的区别",
+    "独立wrapper实跑成功；第二次缓存不调用模型",
+    "未写网站数据库，未自动发布"
+  ],
+  "verified_at": "2026-10-21",
+  "model": "gpt-6.1-sol",
+  "reasoning": "low",
+  "status": "ok",
+  "usage": {
+    "input_tokens": 17128,
+    "cached_input_tokens": 0,
+    "output_tokens": 616,
+    "reasoning_output_tokens": 0
+  },
+  "offline_tests_passed": 17
+}

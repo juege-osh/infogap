@@ -14,6 +14,9 @@ func migrateSchema(db *sql.DB) error {
 	if err := migrateRelease(db); err != nil {
 		return err
 	}
+	if err := migrateReadingCredits(db); err != nil {
+		return err
+	}
 	return migrateSourceVisibility(db)
 }
 

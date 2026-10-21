@@ -27,20 +27,21 @@ import (
 )
 
 const founderEmail = "1402272093@qq.com"
-const version = "1.0.1"
+const version = "1.0.2"
 
 var buildCommit = "dev"
 
-var categories = []string{"前沿科技", "人工智能", "生命科学", "物理", "化学", "地球与地理", "天文与空间", "材料科学", "开源技术"}
+var categories = []string{"前沿科技", "人工智能", "生命科学", "物理", "化学", "地球与地理", "天文与空间", "材料科学", "开源技术", "军事与国防", "政治与公共政策", "农业与食品", "社会民生", "法律法规", "航空航天", "经济与产业", "能源与环境", "医疗健康", "教育与就业", "交通与基建", "公共安全"}
 
 type Tier struct {
-	Name       string `json:"name"`
-	MinPoints  int    `json:"min_points"`
-	Color      string `json:"color"`
-	DelayHours int    `json:"delay_hours"`
+	Name           string `json:"name"`
+	MinPoints      int    `json:"min_points"`
+	Color          string `json:"color"`
+	DelayHours     int    `json:"delay_hours"`
+	DailyAllowance int    `json:"daily_allowance"`
 }
 
-var tiers = []Tier{{"坚韧黑铁", 0, "#88909a", 72}, {"英勇青铜", 100, "#b5896b", 48}, {"荣耀白银", 300, "#c5ced6", 24}, {"华贵黄金", 700, "#e8b84b", 12}, {"璀璨铂金", 1400, "#75cacc", 6}, {"流光翡翠", 2500, "#59c595", 3}, {"璀璨钻石", 4000, "#80b3ed", 1}, {"超凡大师", 6500, "#b994eb", 0}, {"傲世宗师", 10000, "#eb8383", 0}, {"最强王者", 15000, "#f5d575", 0}}
+var tiers = []Tier{{"坚韧黑铁", 0, "#88909a", 72, 1}, {"英勇青铜", 100, "#b5896b", 48, 2}, {"荣耀白银", 300, "#c5ced6", 24, 3}, {"华贵黄金", 700, "#e8b84b", 12, 5}, {"璀璨铂金", 1400, "#75cacc", 6, 8}, {"流光翡翠", 2500, "#59c595", 3, 10}, {"璀璨钻石", 4000, "#80b3ed", 1, 15}, {"超凡大师", 6500, "#b994eb", 0, 20}, {"傲世宗师", 10000, "#eb8383", 0, 30}, {"最强王者", 15000, "#f5d575", 0, 50}}
 
 type Entitlements struct {
 	Subscriptions     bool `json:"subscriptions"`
@@ -60,7 +61,8 @@ type User struct {
 	Tier                  string       `json:"tier"`
 	TierIndex             int          `json:"tier_index"`
 	Credits               int          `json:"credits"`
-	WeeklyRemaining       int          `json:"weekly_remaining"`
+	DailyRemaining        int          `json:"daily_remaining"`
+	DailyAllowance        int          `json:"daily_allowance"`
 	Contributions         int          `json:"contributions"`
 	FeaturedContributions int          `json:"featured_contributions"`
 	RareContributions     int          `json:"rare_contributions"`
@@ -68,6 +70,8 @@ type User struct {
 	Disabled              bool         `json:"disabled"`
 	Week                  string       `json:"-"`
 	WeeklyUsed            int          `json:"-"`
+	Day                   string       `json:"-"`
+	DailyUsed             int          `json:"-"`
 }
 type server struct {
 	db                     *sql.DB
@@ -81,14 +85,14 @@ type scanner interface{ Scan(...any) error }
 
 func userScan(r scanner) (*User, error) {
 	u := &User{}
-	err := r.Scan(&u.ID, &u.Email, &u.Username, &u.Role, &u.Points, &u.Credits, &u.Week, &u.WeeklyUsed, &u.Contributions, &u.FeaturedContributions, &u.RareContributions, &u.LastQualityAt, &u.Disabled, &u.MembershipUntil)
+	err := r.Scan(&u.ID, &u.Email, &u.Username, &u.Role, &u.Points, &u.Credits, &u.Week, &u.WeeklyUsed, &u.Contributions, &u.FeaturedContributions, &u.RareContributions, &u.LastQualityAt, &u.Disabled, &u.MembershipUntil, &u.Day, &u.DailyUsed)
 	if err != nil {
 		return nil, err
 	}
 	return u, nil
 }
 
-const userCols = "id,email,username,role,points,credits,week_key,weekly_used,contributions,featured_contributions,rare_contributions,last_quality_at,disabled,membership_until"
+const userCols = "id,email,username,role,points,credits,week_key,weekly_used,contributions,featured_contributions,rare_contributions,last_quality_at,disabled,membership_until,day_key,daily_used"
 
 func (s *server) decorate(u *User) *User {
 	if u == nil {
@@ -125,9 +129,10 @@ func (s *server) decorate(u *User) *User {
 		delay = 0
 	}
 	u.Entitlements = Entitlements{Subscriptions: limit > 0, SubscriptionLimit: limit, DelayHours: delay}
-	u.WeeklyRemaining = 3
-	if u.Week == weekKey(s.now()) {
-		u.WeeklyRemaining = max(0, 3-u.WeeklyUsed)
+	u.DailyAllowance = tiers[u.TierIndex].DailyAllowance
+	u.DailyRemaining = u.DailyAllowance
+	if u.Day == dayKey(s.now()) {
+		u.DailyRemaining = max(0, u.DailyAllowance-u.DailyUsed)
 	}
 	return u
 }
@@ -230,7 +235,7 @@ func (s *server) stats(u *User) map[string]int {
 func (s *server) bootstrap(w http.ResponseWriter, r *http.Request) {
 	_, err := smtpSettings()
 	u := s.current(r)
-	send(w, 200, map[string]any{"user": u, "stats": s.stats(u), "categories": categories, "tiers": tiers, "rules": map[string]int{"welcome": 10, "weekly": 3, "contribution": 100}, "mail_ready": err == nil})
+	send(w, 200, map[string]any{"user": u, "stats": s.stats(u), "categories": categories, "tiers": tiers, "rules": map[string]any{"welcome": 10, "contribution": 100, "unlock_costs": unlockCosts, "daily_reset_timezone": "Asia/Shanghai"}, "mail_ready": err == nil})
 }
 func (s *server) routes() http.Handler {
 	m := http.NewServeMux()

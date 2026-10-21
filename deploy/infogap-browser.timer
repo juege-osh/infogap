@@ -1,0 +1,11 @@
+[Unit]
+Description=Check InfoGap public browser sources every six hours
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=6h
+RandomizedDelaySec=180
+Persistent=true
+
+[Install]
+WantedBy=timers.target

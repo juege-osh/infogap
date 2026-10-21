@@ -1,0 +1,508 @@
+{
+  "version": 1,
+  "identity_checked_at": "2026-10-21",
+  "purpose": "X机构与项目账号候选白名单，不是帖子正确性背书或采集成功记录",
+  "policy": {
+    "default_kind": "browser",
+    "source_visibility": "public",
+    "candidate_status": "pending",
+    "candidate_evidence": "unverified",
+    "require_primary_evidence_link": true,
+    "trust_blue_badge": false,
+    "collect_replies": false,
+    "collect_reposts": false,
+    "collect_promoted_posts": false,
+    "allow_paid_api": false,
+    "allow_user_credentials": false,
+    "on_login_wall": "login_required",
+    "on_challenge": "blocked",
+    "on_failure": "preserve_error_without_advancing_last_success",
+    "reject_content": [
+      "广告与赞助帖",
+      "带货、优惠码、返佣链接",
+      "付费套餐促销",
+      "拉群与涨粉诱导",
+      "没有一手证据链接的夸大结论",
+      "仅转帖、截图或二手爆料"
+    ],
+    "notes": [
+      "primary_domains是核验入口提示，必须按完整域名或子域边界匹配；域名在列不等于帖子可信。",
+      "展开t.co链接后再核对最终URL，禁止私网、环回、凭证URL和非http(s)目的地址。",
+      "同一论文、DOI或release多平台去重；不因来自机构账号就自动发布。"
+    ]
+  },
+  "accounts": [
+    {
+      "id": "x-nature",
+      "handle": "nature",
+      "name": "Nature",
+      "profile_url": "https://x.com/nature",
+      "category": "前沿科技",
+      "topics": [
+        "综合科学",
+        "物理",
+        "化学",
+        "生命科学",
+        "地球科学"
+      ],
+      "kind": "browser",
+      "source_visibility": "public",
+      "official_url": "https://www.nature.com/",
+      "identity_status": "official_link_checked",
+      "identity_evidence": [
+        {
+          "url": "https://www.nature.com/",
+          "outbound_url": "https://twitter.com/nature",
+          "checked_at": "2026-10-21",
+          "method": "live_official_html",
+          "note": "在机构官网公开页面中核对到该账号的出站链接。"
+        }
+      ],
+      "primary_domains": [
+        "nature.com",
+        "doi.org"
+      ],
+      "accept_topics": [
+        "有论文或研究分析原文的科学进展",
+        "更正与撤稿说明"
+      ],
+      "reject_topics": [
+        "订阅促销",
+        "广告专题",
+        "招聘",
+        "活动报名"
+      ],
+      "enabled": true,
+      "collection_status": "not_tested"
+    },
+    {
+      "id": "x-sciencemagazine",
+      "handle": "ScienceMagazine",
+      "name": "Science",
+      "profile_url": "https://x.com/ScienceMagazine",
+      "category": "前沿科技",
+      "topics": [
+        "综合科学",
+        "生命科学",
+        "物理",
+        "化学"
+      ],
+      "kind": "browser",
+      "source_visibility": "public",
+      "official_url": "https://www.science.org/",
+      "identity_status": "current_official_link_pending",
+      "identity_evidence": [
+        {
+          "url": "https://promo.aaas.org/images/Publishing/Journals/2019/Authors%20Guide%20Brochure_Final.pdf",
+          "outbound_url": "https://twitter.com/ScienceMagazine",
+          "checked_at": "2026-10-21",
+          "method": "official_pdf_and_search_index",
+          "note": "AAAS官方2019年作者手册的搜索索引明确标注账号；本次手册HTTP直读200。Science官网与X主页返回403，当前官网出站链接仍未复核，暂不启用。"
+        }
+      ],
+      "primary_domains": [
+        "science.org",
+        "doi.org"
+      ],
+      "accept_topics": [
+        "有论文或方法原文的研究进展",
+        "更正与撤稿说明"
+      ],
+      "reject_topics": [
+        "订阅促销",
+        "广告专题",
+        "奖项报名"
+      ],
+      "enabled": false,
+      "collection_status": "not_tested"
+    },
+    {
+      "id": "x-nasa",
+      "handle": "NASA",
+      "name": "NASA",
+      "profile_url": "https://x.com/NASA",
+      "category": "天文与空间",
+      "topics": [
+        "天文学",
+        "行星科学",
+        "航天技术"
+      ],
+      "kind": "browser",
+      "source_visibility": "public",
+      "official_url": "https://www.nasa.gov/",
+      "identity_status": "official_link_checked",
+      "identity_evidence": [
+        {
+          "url": "https://www.nasa.gov/social-media/",
+          "outbound_url": "https://x.com/NASA",
+          "checked_at": "2026-10-21",
+          "method": "live_official_html",
+          "note": "在机构官网公开页面中核对到该账号的出站链接。"
+        }
+      ],
+      "primary_domains": [
+        "nasa.gov",
+        "doi.org",
+        "arxiv.org"
+      ],
+      "accept_topics": [
+        "任务科研结果",
+        "开放数据发布",
+        "带技术材料的任务进展"
+      ],
+      "reject_topics": [
+        "纪念日宣传",
+        "周边商品",
+        "无数据的活动预告"
+      ],
+      "enabled": true,
+      "collection_status": "not_tested"
+    },
+    {
+      "id": "x-nasaearth",
+      "handle": "NASAEarth",
+      "name": "NASA Earth",
+      "profile_url": "https://x.com/NASAEarth",
+      "category": "地球与地理",
+      "topics": [
+        "地球观测",
+        "气候",
+        "遥感"
+      ],
+      "kind": "browser",
+      "source_visibility": "public",
+      "official_url": "https://science.nasa.gov/earth/",
+      "identity_status": "official_link_checked",
+      "identity_evidence": [
+        {
+          "url": "https://www.nasa.gov/social-media/",
+          "outbound_url": "https://x.com/nasaearth",
+          "checked_at": "2026-10-21",
+          "method": "live_official_html",
+          "note": "在机构官网公开页面中核对到该账号的出站链接。"
+        }
+      ],
+      "primary_domains": [
+        "nasa.gov",
+        "doi.org"
+      ],
+      "accept_topics": [
+        "遥感数据与研究结果",
+        "可追溯的地球科学观测"
+      ],
+      "reject_topics": [
+        "单纯风景图",
+        "无研究材料的科普互动"
+      ],
+      "enabled": true,
+      "collection_status": "not_tested"
+    },
+    {
+      "id": "x-esa",
+      "handle": "esa",
+      "name": "European Space Agency",
+      "profile_url": "https://x.com/esa",
+      "category": "天文与空间",
+      "topics": [
+        "空间科学",
+        "航天技术",
+        "地球观测"
+      ],
+      "kind": "browser",
+      "source_visibility": "public",
+      "official_url": "https://www.esa.int/",
+      "identity_status": "official_link_checked",
+      "identity_evidence": [
+        {
+          "url": "https://www.esa.int/ESA/Connect_with_us/Connect_with_us",
+          "outbound_url": "https://twitter.com/esa",
+          "checked_at": "2026-10-21",
+          "method": "live_official_html",
+          "note": "在机构官网公开页面中核对到该账号的出站链接。"
+        }
+      ],
+      "primary_domains": [
+        "esa.int",
+        "doi.org",
+        "arxiv.org"
+      ],
+      "accept_topics": [
+        "任务科学结果",
+        "公开仪器与数据资料"
+      ],
+      "reject_topics": [
+        "品牌合作",
+        "周边商店",
+        "活动宣传"
+      ],
+      "enabled": true,
+      "collection_status": "not_tested"
+    },
+    {
+      "id": "x-cern",
+      "handle": "CERN",
+      "name": "CERN",
+      "profile_url": "https://x.com/CERN",
+      "category": "物理",
+      "topics": [
+        "粒子物理",
+        "加速器",
+        "开放科学"
+      ],
+      "kind": "browser",
+      "source_visibility": "public",
+      "official_url": "https://home.cern/",
+      "identity_status": "official_link_checked",
+      "identity_evidence": [
+        {
+          "url": "https://home.cern/",
+          "outbound_url": "https://linktr.ee/CERN_official",
+          "checked_at": "2026-10-21",
+          "method": "live_official_link_chain",
+          "note": "官网页脚More Social Accounts指向该官方目录。"
+        },
+        {
+          "url": "https://linktr.ee/CERN_official",
+          "outbound_url": "https://x.com/CERN",
+          "checked_at": "2026-10-21",
+          "method": "live_official_link_chain",
+          "note": "从官网所链接目录的公开页面数据中核对到CERN的X主页。"
+        }
+      ],
+      "primary_domains": [
+        "cern.ch",
+        "home.cern",
+        "doi.org",
+        "arxiv.org"
+      ],
+      "accept_topics": [
+        "实验结果与论文",
+        "加速器技术进展",
+        "开放数据与代码"
+      ],
+      "reject_topics": [
+        "参观预约",
+        "周边商品",
+        "无技术内容的纪念活动"
+      ],
+      "enabled": true,
+      "collection_status": "not_tested"
+    },
+    {
+      "id": "x-embl",
+      "handle": "EMBL",
+      "name": "EMBL",
+      "profile_url": "https://x.com/EMBL",
+      "category": "生命科学",
+      "topics": [
+        "分子生物学",
+        "结构生物学",
+        "基因组学"
+      ],
+      "kind": "browser",
+      "source_visibility": "public",
+      "official_url": "https://www.embl.org/",
+      "identity_status": "official_link_checked",
+      "identity_evidence": [
+        {
+          "url": "https://www.embl.org/social-media/",
+          "outbound_url": "https://twitter.com/embl",
+          "checked_at": "2026-10-21",
+          "method": "live_official_html",
+          "note": "在机构官网公开页面中核对到该账号的出站链接。"
+        }
+      ],
+      "primary_domains": [
+        "embl.org",
+        "ebi.ac.uk",
+        "nature.com",
+        "science.org",
+        "doi.org",
+        "biorxiv.org"
+      ],
+      "accept_topics": [
+        "有论文依据的研究进展",
+        "公开科研数据与方法"
+      ],
+      "reject_topics": [
+        "招聘",
+        "培训课程售卖",
+        "活动报名"
+      ],
+      "enabled": true,
+      "collection_status": "not_tested"
+    },
+    {
+      "id": "x-emblebi",
+      "handle": "emblebi",
+      "name": "EMBL-EBI",
+      "profile_url": "https://x.com/emblebi",
+      "category": "生命科学",
+      "topics": [
+        "生物信息学",
+        "蛋白质",
+        "开放生物数据"
+      ],
+      "kind": "browser",
+      "source_visibility": "public",
+      "official_url": "https://www.ebi.ac.uk/",
+      "identity_status": "official_link_checked",
+      "identity_evidence": [
+        {
+          "url": "https://www.embl.org/social-media/",
+          "outbound_url": "https://twitter.com/emblebi",
+          "checked_at": "2026-10-21",
+          "method": "live_official_html",
+          "note": "在机构官网公开页面中核对到该账号的出站链接。"
+        }
+      ],
+      "primary_domains": [
+        "ebi.ac.uk",
+        "embl.org",
+        "doi.org",
+        "biorxiv.org",
+        "github.com"
+      ],
+      "accept_topics": [
+        "数据库版本与新增数据",
+        "生物信息学方法和软件",
+        "可复用研究资源"
+      ],
+      "reject_topics": [
+        "培训报名",
+        "招聘",
+        "会议宣传"
+      ],
+      "enabled": true,
+      "collection_status": "not_tested"
+    },
+    {
+      "id": "x-pytorch",
+      "handle": "PyTorch",
+      "name": "PyTorch",
+      "profile_url": "https://x.com/PyTorch",
+      "category": "开源技术",
+      "topics": [
+        "机器学习框架",
+        "深度学习",
+        "开源软件"
+      ],
+      "kind": "browser",
+      "source_visibility": "public",
+      "official_url": "https://pytorch.org/",
+      "identity_status": "official_link_checked",
+      "identity_evidence": [
+        {
+          "url": "https://pytorch.org/",
+          "outbound_url": "https://twitter.com/pytorch",
+          "checked_at": "2026-10-21",
+          "method": "live_official_html",
+          "note": "在机构官网公开页面中核对到该账号的出站链接。"
+        }
+      ],
+      "primary_domains": [
+        "pytorch.org",
+        "github.com"
+      ],
+      "accept_topics": [
+        "有release或文档的版本更新",
+        "复现方法与性能报告",
+        "安全修复"
+      ],
+      "reject_topics": [
+        "会议售票",
+        "基金会会员宣传",
+        "赞助商展示"
+      ],
+      "enabled": true,
+      "collection_status": "not_tested"
+    },
+    {
+      "id": "x-github",
+      "handle": "github",
+      "name": "GitHub",
+      "profile_url": "https://x.com/github",
+      "category": "开源技术",
+      "topics": [
+        "开源基础设施",
+        "软件安全",
+        "开发工具"
+      ],
+      "kind": "browser",
+      "source_visibility": "public",
+      "official_url": "https://github.com/",
+      "identity_status": "official_link_checked",
+      "identity_evidence": [
+        {
+          "url": "https://github.com/",
+          "outbound_url": "https://x.com/github",
+          "checked_at": "2026-10-21",
+          "method": "live_official_html",
+          "note": "在机构官网公开页面中核对到该账号的出站链接。"
+        }
+      ],
+      "primary_domains": [
+        "github.com",
+        "github.blog",
+        "githubstatus.com"
+      ],
+      "accept_topics": [
+        "有文档或changelog的技术更新",
+        "安全公告",
+        "可追溯开源项目发布"
+      ],
+      "reject_topics": [
+        "付费套餐促销",
+        "客户宣传",
+        "品牌活动",
+        "无技术材料的产品口号"
+      ],
+      "enabled": true,
+      "collection_status": "not_tested"
+    },
+    {
+      "id": "x-huggingface",
+      "handle": "huggingface",
+      "name": "Hugging Face",
+      "profile_url": "https://x.com/huggingface",
+      "category": "人工智能",
+      "topics": [
+        "开放模型",
+        "数据集",
+        "机器学习工具"
+      ],
+      "kind": "browser",
+      "source_visibility": "public",
+      "official_url": "https://huggingface.co/",
+      "identity_status": "official_link_checked",
+      "identity_evidence": [
+        {
+          "url": "https://huggingface.co/",
+          "outbound_url": "https://twitter.com/huggingface",
+          "checked_at": "2026-10-21",
+          "method": "live_official_html",
+          "note": "在机构官网公开页面中核对到该账号的出站链接。"
+        }
+      ],
+      "primary_domains": [
+        "huggingface.co",
+        "github.com",
+        "arxiv.org",
+        "doi.org"
+      ],
+      "accept_topics": [
+        "带模型卡与许可证的模型发布",
+        "有数据说明的数据集",
+        "开源库更新与可复现实验"
+      ],
+      "reject_topics": [
+        "推理服务促销",
+        "硬件带货",
+        "付费套餐",
+        "无依据的模型排行"
+      ],
+      "enabled": true,
+      "collection_status": "not_tested"
+    }
+  ]
+}

@@ -35,5 +35,14 @@ install -m 0644 "$release_path/deploy/infogap.http.conf" /opt/osh/003-config/osh
 docker exec osh-nginx nginx -t
 docker exec osh-nginx nginx -s reload
 systemctl enable --now infogap-collect.timer infogap-backup.timer
+if [ -f "$release_path/deploy/codex-run.sh" ] && [ -x /usr/local/bin/codex ]; then
+  install -m 0755 "$release_path/deploy/codex-run.sh" /usr/local/bin/infogap-codex
+  if [ -f "$release_path/deploy/summarize-run.sh" ]; then
+    systemctl enable --now infogap-summary.timer
+  fi
+fi
+if [ -f "$release_path/deploy/infogap-browser.timer" ] && docker image inspect infogap-browser:1.64.0 >/dev/null 2>&1; then
+  systemctl enable --now infogap-browser.timer
+fi
 systemctl start infogap-backup.service
 printf '\nRelease activated: %s\nPrevious release: %s\n' "$release_path" "$previous_path"

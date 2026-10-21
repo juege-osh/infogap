@@ -1,12 +1,12 @@
 # InfoGap v1 contract
 Go 1.26 + modernc SQLite, static buildless web served by Go. Local listen 127.0.0.1:18869. PROD domain https://infogap.osh.lol. JSON all APIs. Times RFC3339 UTC. Errors {error:string}. Cookie session with HttpOnly SameSite Lax secure on production; origin check mutations. Frontend never receives locked body. No remote fonts/CDN/images. Science text source-first.
 
-GET /api/bootstrap => {user:null|User,stats:{published,sources,members,pending},categories:[string],tiers:[{name,min_points,color}],rules:{welcome:10,weekly:3,contribution:100},mail_ready:bool}
-User {id,email,username,role:'admin'|'reviewer'|'member',points,tier,tier_index,credits,weekly_remaining,contributions,featured_contributions,rare_contributions}
+GET /api/bootstrap => {user:null|User,stats:{published,sources,members,pending},categories:[string],tiers:[{name,min_points,color}],rules:{welcome:10,contribution:100,unlock_costs:{ordinary:1,featured:2,rare:4,exclusive:8},daily_reset_timezone:"Asia/Shanghai"},mail_ready:bool}
+User {id,email,username,role:'admin'|'reviewer'|'member',points,tier,tier_index,credits,daily_allowance,daily_remaining,contributions,featured_contributions,rare_contributions}
 GET /api/gaps?q=&category=&level=&sort=latest|value&view=all|saved|unlocked|mine&page=1 => {items:[Gap],total,page}
 Gap {id,title,summary,category,level:'ordinary'|'featured'|'rare'|'exclusive',evidence:'peer_reviewed'|'preprint'|'official'|'repository'|'unverified',source_name,source_url,published_at,created_at,updated_at,status:'pending'|'published'|'rejected'|'disputed'|'expired',tags:[string],author,unlocked:bool,saved:bool,body?:string,review_note?:string}
 GET /api/gaps/{id} => Gap (no body unless unlocked or owner/admin; metadata published available to guest)
-POST /api/gaps/{id}/unlock {} => {gap:Gap,user:User}; auth required; admin/reviewer free; ordinary uses weekly3 then credits; featured credits; rare silver index>=2 plus featured_contributions>=1; exclusive diamond index>=6 plus rare_contributions>=1 and last_quality_at within90days. All paid 1credit and permanent unlock. welcome10 credits. contribution approved =100credits, always. Quality points ordinary20 featured80 rare200 exclusive500; tier minima [0,100,300,700,1400,2500,4000,6500,10000,15000]. No caps reward. No self review reward bypass. Any rank may submit any proposed level.
+POST /api/gaps/{id}/unlock {} => {gap:Gap,user:User}; auth required; admin/reviewer free; all content uses daily allowance first, persistent credits second; rare silver index>=2 plus featured_contributions>=1; exclusive diamond index>=6 plus rare_contributions>=1 and last_quality_at within90days. Costs ordinary1/featured2/rare4/exclusive8 and permanent unlock. welcome10 credits. contribution approved =100credits, always. Quality points ordinary20 featured80 rare200 exclusive500; tier minima [0,100,300,700,1400,2500,4000,6500,10000,15000]. No caps reward. No self review reward bypass. Any rank may submit any proposed level.
 POST /api/gaps/{id}/save {} => {saved:bool}
 POST /api/gaps/{id}/report {reason} => {ok:true}
 POST /api/auth/code {email,invite?} => {ok:true}; existing email or verified admin allow no invite. Invite required new other. No code in responses/logs; SMTP config env SMTP_HOST/PORT/USER/PASSWORD/FROM/SECURITY.
@@ -30,3 +30,5 @@ Collector only inserts candidate pending content. Never automatically reward/cla
 ## 补充接口与权限
 
 段位时效、订阅配置、会员有效期和站长全状态查询的最终字段与规则见 `docs/backend.md`；会员计划、订单、查询与验签回调见 `docs/billing.md`。`healthz.commit` 为实际运行的Git提交。
+
+GET /api/admin/overview additionally returns summary_jobs:{pending,completed,failed,too_long,edited,processing}; staff only. No source text, credentials or model output logs are exposed.

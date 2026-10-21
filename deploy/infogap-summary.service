@@ -1,0 +1,24 @@
+[Unit]
+Description=Condense new long InfoGap candidates with bounded Codex requests
+After=network-online.target infogap-osh.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/infogap-osh/current
+ExecStart=/usr/bin/python3 /opt/infogap-osh/current/scripts/summary-worker.py --db /var/lib/infogap-osh/infogap.sqlite --max-items 3
+ReadWritePaths=/var/lib/infogap-osh /var/lib/infogap-agent
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=512M
+TimeoutStartSec=10min
+TimeoutStopSec=15s
+KillMode=control-group
+

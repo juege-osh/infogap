@@ -1,0 +1,142 @@
+{
+  "verified_at": "2026-10-21T09:52:10Z",
+  "playwright": "1.64.0",
+  "chromium": "156.0.8078.4",
+  "image": "infogap-browser:1.64.0",
+  "image_id": "sha256:de5864923219e8cd1236665bc8623b4caadff1aa31a016e9ce08c017cdcc7ab2",
+  "base_digest": "sha256:06a9939e57531807f8d5fd76ce44b53165ffb7d7501d87ab10e285c20b1e971f",
+  "files": {
+    "scripts/browser-probe.mjs": "cfcaff1a26ec0e782e3cd15b0e57454c34c4e194777d7c644b9a76c31f0f645c",
+    "data/sources.json": "c38a0c32553a1c2d5bb114016b3cd3ddbd95f30a62ba04d61f31254b5a94493a",
+    "data/x-accounts.json": "655355943cf3655a49417b285848a689ac8c6e2b830776fd621f7071f3458022",
+    "deploy/browser-run.sh": "08ab745dc9b38438dd9eb8ad0deb06ac8928d41dd837b3a24ad3fcf908bd4a23",
+    "deploy/browser-network.sh": "c84f10d80757bb2b50cfcbea98c4a5a5a46b5d49d4d92580dc6c12aa8aca4d55",
+    "deploy/browser-seccomp.json": "59a9838d29d565c536007c07541fbb7c0d96ec1a6f6a1c944bd9761e092b62d6",
+    "deploy/browser.Dockerfile": "43da63f9eeb2c606833ad3b5b80089554ef7cfb4db80af820c0527c79554b934"
+  },
+  "checks": [
+    {
+      "name": "sandbox_offline",
+      "network": "none",
+      "uid": 1001,
+      "sandbox_requested": true,
+      "browser": "156.0.8078.4",
+      "result": "success"
+    },
+    {
+      "name": "linuxdo_example_rendered",
+      "url": "https://linux.do/t/topic/3011457/19",
+      "status": "ok",
+      "http_status": 200,
+      "visible_items": 15,
+      "rendered_text_chars": 454,
+      "rendered_text_sha256": "a7efb1f928e7c41a056a8331aba66110301466860eaf1fd4f08ecb37d05cd402",
+      "candidates": 0
+    },
+    {
+      "name": "linuxdo_browser_systemd",
+      "unit": "infogap-browser-verify.service",
+      "result": "success",
+      "exec_main_status": 0,
+      "runtime_seconds": 71.187,
+      "http_status": 200,
+      "visible_items": 30,
+      "filtered_count": 25,
+      "candidates": 3,
+      "candidate_visibility": "internal",
+      "candidate_status": "pending",
+      "candidate_dates_from_dom": [
+        "2026-10-21T08:08:22.056Z",
+        "2026-10-21T06:47:46.454Z",
+        "2026-10-21T03:00:18.528Z"
+      ],
+      "server_result_file": "/opt/infogap-browser/verification/linuxdo-browser.json",
+      "note": "Same systemd sandbox properties as production service; no production DB writes. This run preceded raw_text metadata addition; subsequent raw_text verification is recorded separately."
+    },
+    {
+      "name": "x_nasa_rendered",
+      "url": "https://x.com/NASA",
+      "status": "error",
+      "http_status": 200,
+      "page_title": "NASA (@NASA) / X",
+      "visible_items": 0,
+      "candidates": 0,
+      "reason": "No public tweet DOM appeared within normal load window; not marked success or assumed login wall."
+    },
+    {
+      "name": "network_restrictions",
+      "tcp_port": 443,
+      "results": [
+        {
+          "host": "172.29.240.1",
+          "connected": false,
+          "result": "timeout"
+        },
+        {
+          "host": "172.17.0.1",
+          "connected": false,
+          "result": "timeout"
+        },
+        {
+          "host": "169.254.169.254",
+          "connected": false,
+          "result": "timeout"
+        },
+        {
+          "host": "43.242.200.72",
+          "connected": false,
+          "result": "timeout"
+        }
+      ],
+      "firewall_drop_counters_increased": true
+    },
+    {
+      "name": "linuxdo_raw_text_runtime",
+      "image_id": "sha256:de5864923219e8cd1236665bc8623b4caadff1aa31a016e9ce08c017cdcc7ab2",
+      "status": "ok",
+      "http_status": 200,
+      "visible_items": 30,
+      "candidates": 3,
+      "raw_text_lengths": [
+        94,
+        98,
+        241
+      ],
+      "stored_raw_char_lengths": [
+        94,
+        98,
+        241
+      ],
+      "text_truncated": [
+        false,
+        false,
+        false
+      ],
+      "raw_text_scope": "main_post_visible_dom",
+      "server_result_file": "/opt/infogap-browser/verification/linuxdo-raw.json",
+      "note": "Current visible sample posts are short; verifies fields and complete DOM text persistence, not a naturally occurring >20000-character article."
+    },
+    {
+      "name": "raw_text_boundary_fixtures",
+      "result": "passed",
+      "cases": 5,
+      "unicode_code_point_lengths": [
+        1999,
+        2000,
+        2001,
+        20000,
+        20001
+      ],
+      "input_character": "supplementary Unicode code point",
+      "tested": "Extracted actual collector block; original length, 20000 cap, truncation flag, and DOM scope assertions."
+    }
+  ],
+  "notes": [
+    "Non-root headed Chromium under Xvfb, fresh anonymous context, no stealth/cookies/CAPTCHA interaction.",
+    "Initial browser launch and CDN policy failures were corrected before website-access conclusions.",
+    "The image has no host bind mounts or secrets; only public configuration is copied.",
+    "The public server IP is an upstream NAT address and requires explicit outbound DROP in addition to bridge INPUT DROP.",
+    "No automatic publication; the parent collector validates candidates before inserting pending rows.",
+    "Latest image adds raw_text from the rendered main post only, capped at 20000 Unicode code points, with original length and explicit truncation flag; displayed candidate body is an excerpt, not a full-article summary."
+  ]
+}

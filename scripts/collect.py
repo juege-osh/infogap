@@ -9,6 +9,7 @@ import datetime as dt
 import email.utils
 import fcntl
 import html
+import hashlib
 from html.parser import HTMLParser
 import ipaddress
 import json
@@ -28,7 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 UA = "InfoGap/1.0 (+https://infogap.osh.lol; official-feed-monitor)"
 MAX_BYTES = 3 * 1024 * 1024
 TIMEOUT = 18
-ALLOWED_HOSTS = {"www.nature.com", "www.science.org", "rss.arxiv.org", "www.nasa.gov", "www.esa.int", "api.github.com", "linux.do"}
+ALLOWED_HOSTS = {"www.nature.com", "www.science.org", "rss.arxiv.org", "www.nasa.gov", "www.esa.int", "api.github.com", "linux.do", "www.gov.cn", "www.mca.gov.cn", "www.mot.gov.cn", "www.cnsa.gov.cn", "www.gov.uk", "www.federalregister.gov", "www.who.int", "www.moa.gov.cn", "www.ndrc.gov.cn", "www.mee.gov.cn"}
 ROBOT_CACHE = {}
 HOST_LAST = {}
 
@@ -145,7 +146,7 @@ def fetch(url, delay=2):
         if elapsed < delay:
             time.sleep(delay - elapsed)
         HOST_LAST[host] = time.monotonic()
-        req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/atom+xml, application/rss+xml, application/json, application/xml, text/xml;q=0.9"})
+        req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/atom+xml, application/rss+xml, application/json, application/xml, text/html;q=0.9, text/xml;q=0.9"})
         try:
             with OPENER.open(req, timeout=TIMEOUT) as r:
                 data = r.read(MAX_BYTES + 1)
@@ -232,7 +233,94 @@ def child_text(item, names):
     return ""
 
 
+def list_date(value):
+    """Only explicit calendar dates; an undated announcement stays undated."""
+    matches = list(re.finditer(r"(?<!\d)(20\d{2})[-年/.](\d{1,2})[-月/.](\d{1,2})(?:日|\b)", value))
+    match = matches[-1] if matches else None
+    if not match:
+        match = re.search(r"(?:^|[/_t-])(20\d{2})(\d{2})(\d{2})(?=[_/.-]|$)", value)
+    if not match:
+        return ""
+    try:
+        return dt.date(*[int(v) for v in match.groups()]).isoformat()
+    except ValueError:
+        return ""
+
+
+class OfficialList(HTMLParser):
+    """Read configured article links from a public official index, not its navigation."""
+    def __init__(self, source):
+        HTMLParser.__init__(self)
+        self.source = source
+        self.host = urllib.parse.urlsplit(source["url"]).hostname
+        self.pattern = re.compile(source["article_pattern"])
+        self.items, self.seen = [], set()
+        self.anchor, self.row = None, None
+        self.date_tag, self.date_text = None, []
+        self.skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag in ("script", "style"):
+            self.skip += 1
+        if tag == "li":
+            self.row = {"text": [], "items": []}
+        if tag == "a" and not self.skip:
+            url = urllib.parse.urljoin(self.source["url"], attrs.get("href", "").strip())
+            parsed = urllib.parse.urlsplit(url)
+            if (parsed.scheme in ("http", "https") and parsed.hostname == self.host and
+                    not parsed.username and not parsed.password and parsed.port in (None, 80, 443) and
+                    self.pattern.search(parsed.path)):
+                self.anchor = {"url": url, "text": [], "fallback": attrs.get("title", "")}
+                self.date_text = []
+        if self.anchor is not None and self.source.get("date_class") in attrs.get("class", "").split():
+            self.date_tag = tag
+
+    def handle_data(self, value):
+        if self.skip:
+            return
+        if self.anchor is not None:
+            self.anchor["text"].append(value)
+            if self.date_tag:
+                self.date_text.append(value)
+        # Dates inside an article title may be its effective date, not publication.
+        if self.row is not None and self.anchor is None:
+            self.row["text"].append(value)
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style"):
+            self.skip = max(0, self.skip - 1)
+        if tag == self.date_tag:
+            self.date_tag = None
+        if tag == "a" and self.anchor is not None:
+            title = text_only(self.anchor["fallback"]) or text_only(" ".join(self.anchor["text"]))
+            url = canonical_url(self.anchor["url"])
+            if len(title) >= 8 and url not in self.seen:
+                item = {"title": title, "url": url, "description": "", "date": list_date(" ".join(self.date_text)) or list_date(urllib.parse.urlsplit(url).path)}
+                self.items.append(item)
+                self.seen.add(url)
+                if self.row is not None:
+                    self.row["items"].append(item)
+            self.anchor = None
+        if tag == "li" and self.row is not None:
+            row_text = " ".join(self.row["text"])
+            matches = re.findall(r"(?<!\d)20\d{2}[-年/.]\d{1,2}[-月/.]\d{1,2}(?:日|\b)", row_text)
+            dates = set(list_date(value) for value in matches)
+            dates.discard("")
+            date = next(iter(dates)) if len(dates) == 1 else ""
+            if date:
+                for item in self.row["items"]:
+                    item["date"] = date
+            self.row = None
+
+
 def parse_items(raw, source):
+    if source["kind"] == "html":
+        parser = OfficialList(source)
+        parser.feed(raw.decode(source.get("encoding", "utf-8"), "replace"))
+        if not parser.items:
+            raise ValueError("官方栏目没有匹配到文章，可能是页面结构变化或访问验证；本轮不视为成功")
+        return parser.items
     if source["kind"] == "github":
         records = json.loads(raw.decode("utf-8"))
         if not isinstance(records, list):
@@ -288,6 +376,9 @@ def candidate(item, source):
     internal = community_source(source)
     excerpt = text_only(item.get("description", ""))[:200 if internal else 500]
     date = stamp(item.get("date"))
+    if source.get("date_from_url") == "dd-mm-yyyy":
+        match = re.search(r"/(\d{2})-(\d{2})-(20\d{2})-", urllib.parse.urlsplit(url).path)
+        date = stamp("%s-%s-%s" % (match.group(3), match.group(2), match.group(1))) if match else ""
     if date and parse_date(date) > utcnow() + dt.timedelta(days=1):
         raise ValueError("来源日期在未来，需人工核对")
     if internal:
@@ -307,13 +398,21 @@ def candidate(item, source):
                 "source_name": source["name"], "source_url": url, "source_visibility": "internal", "published_at": date,
                 "tags": ["自动采集", "待核验", "内部线索"],
                 "review_note": "内部社区线索：只采集公开RSS元信息与最多200字摘录；发布前须去除正文中的社区名称与链接，并独立核验。"}
-    limitation = "目前仅采集官方订阅或发布说明，未读取论文全文。英文标题和摘录保留原文，中文解读及价值评级待审核。"
+    if source["kind"] == "html":
+        limitation = "目前只核对了官方栏目中的标题、文章地址和可识别的发布日期，尚未读取和核实文章正文。具体变化、适用对象和执行条件需编辑补充。"
+    else:
+        limitation = "目前仅采集官方订阅或发布说明，未读取论文全文。英文标题和摘录保留原文，中文解读及价值评级待审核。"
     if source["evidence"] == "preprint":
         limitation += " arXiv收录不等于通过同行评审；订阅日期也可能是公告或修订日期。"
     elif source["evidence"] == "unverified":
         limitation += " 期刊目录也可能包含新闻、社论或评论，必须核对文章类型。"
-    body = "## 核心进展\n\n" + (excerpt or "此订阅只有题名与出版信息，尚无可核验研究摘要。") + "\n\n## 为什么值得关注\n\n**待核验候选**，需审核者补充具体发现、适用对象和价值，当前不作研究突破判断。\n\n## 证据与边界\n\n" + limitation + "\n\n## 原始来源\n\n[" + source["name"] + "](" + url + ")"
-    return {"title": title, "summary": "待核验候选｜" + source["name"] + "新条目；尚未形成中文研究解读。",
+    body = "## 核心进展\n\n" + (excerpt or "来源列表只提供了标题和链接，具体内容待核验。") + "\n\n## 为什么值得关注\n\n**待核验候选**，需审核者补充具体变化、适用对象和价值。\n\n## 证据与边界\n\n" + limitation
+    if source.get("jurisdiction"):
+        body += ("\n\n## 适用范围与时间\n\n地区：" + source["jurisdiction"] +
+                 "\n\n来源发布日期：" + (date[:10] if date else "待核验") +
+                 "\n\n生效日期：待核验。文件属于草案、正式公布、现行有效或已废止，需以正文及后续官方文件为准；发布日期不等于生效日期。")
+    body += "\n\n## 原始来源\n\n[" + source["name"] + "](" + url + ")"
+    return {"title": title, "summary": "待核验候选｜" + source["name"] + "新条目，具体内容和价值待编辑核实。",
             "body": body, "category": source["category"], "level": "ordinary", "evidence": source["evidence"],
             "source_name": source["name"], "source_url": url, "published_at": date,
             "tags": ["自动采集", "待核验"], "review_note": "只采集元信息和短摘录；禁止直接把此条视为全文解读。"}
@@ -342,6 +441,25 @@ def insert_gap(db, item, status="pending", historical_seed=False):
     ts = now()
     db.execute("INSERT OR IGNORE INTO gaps (" + ",".join(fields) + ",created_at,updated_at,status,tags,author_id,rewarded) VALUES (" + ",".join(["?"] * (len(fields) + 4)) + ",NULL,0)", values + [ts, ts, status, json.dumps(data.get("tags", []), ensure_ascii=False)])
     return db.execute("SELECT changes()").fetchone()[0]
+
+
+def queue_summary(db, item, source_text, truncated=False):
+    """Private source material for a separate limited model worker; no LLM here."""
+    if not isinstance(source_text, str) or (len(source_text) <= 2000 and not truncated):
+        return 0
+    row = db.execute("SELECT id,title,body,updated_at,status,author_id FROM gaps WHERE source_url=?", (canonical_url(item["source_url"]),)).fetchone()
+    if not row or row[4] != "pending" or row[5] is not None:
+        return 0
+    state = "too_long" if truncated or len(source_text) > 20000 else "pending"
+    error = "原文超过20000字或未完整提取，需要人工分段核验；未调用模型。" if state == "too_long" else ""
+    digest = hashlib.sha256(source_text.encode("utf-8")).hexdigest()
+    db.execute("INSERT OR IGNORE INTO summary_jobs(gap_id,content_hash,title,source_text,original_body_hash,original_updated_at,state,error,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+               (row[0], digest, row[1], source_text[:20000], hashlib.sha256(row[2].encode("utf-8")).hexdigest(), row[3], state, error, now()))
+    inserted = db.execute("SELECT changes()").fetchone()[0]
+    if inserted:
+        note = "待长文精炼（gpt-6.1-sol，low）；模型稿也须审核。" if state == "pending" else error
+        db.execute("UPDATE gaps SET review_note=review_note || ? WHERE id=?", (" " + note, row[0]))
+    return inserted
 
 
 def sync_sources(db, sources):
@@ -409,6 +527,7 @@ def run(args):
                     if db:
                         with db:
                             inserted += insert_gap(db, gap)
+                            queue_summary(db, gap, text_only(item.get("description", "")))
                 except (ValueError, KeyError, TypeError):
                     invalid += 1
             if items and not valid and invalid:

@@ -1,0 +1,11 @@
+[Unit]
+Description=Process only new long InfoGap drafts every six hours
+
+[Timer]
+OnBootSec=30min
+OnUnitActiveSec=6h
+RandomizedDelaySec=60
+Persistent=true
+
+[Install]
+WantedBy=timers.target

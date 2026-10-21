@@ -168,5 +168,266 @@
       "性能优化"
     ],
     "review_note": "2026-10-21核验官方GitHub Releases API与SciPy发布记录；未安装、运行性能测试或验证实验构建。"
+  },
+  {
+    "title": "北约量子路线图公开：评估标准和试点都有明确计划节点",
+    "summary": "北约在2026年9月公开量子技术路线图，覆盖计算、通信与感知。文件列出2027年的评估和试点节点。它反映研发与标准化安排，不能当作现有装备能力证明。",
+    "body": "## 核心进展\n\n北约成员国于2026年7月30日批准量子技术路线图，9月29日公布公开版本。文件分别讨论量子计算、通信与感知，明确承认不同方向的成熟度、测试条件和标准并不一致。计划包括建立用例库、持续评估技术成熟度，以及推进抗量子密码标准；首版量子评估准则的目标时间是**2027年第二季度**。\n\n## 为什么值得关注\n\n这份文件给国防科技观察提供了可追踪的时间表。读者可以据此检查后续是否出现评估准则、比较试验报告或标准化成果，而不只看厂商演示。它也把“量子技术应用”和“应对量子风险”分开：前者关注新能力的验证，后者包括现有通信与基础设施的密码迁移。两类工作需要的证据不同。\n\n## 证据与边界\n\n适用背景是北约及成员国的合作安排。公开路线图不是采购合同、性能测试报告，也没有证明某类量子设备已经普遍部署。文件说明阶段推进取决于技术进展与试验结果，2027年的节点应按计划理解；未来是否按期完成，还要继续核对官方交付记录。本条只解读公开研发治理安排。\n\n## 原始来源\n\n[北约发布说明](https://nato.int/en/news-and-events/articles/news/2026/09/29/nato-releases-quantum-technology-roadmap)\n[量子技术路线图公开正文](https://nato.int/en/about-us/official-texts-and-resources/official-texts/2026/09/29/quantum-technology-roadmap)",
+    "category": "军事与国防",
+    "level": "ordinary",
+    "evidence": "official",
+    "source_name": "NATO 官方文件",
+    "source_url": "https://nato.int/en/about-us/official-texts-and-resources/official-texts/2026/09/29/quantum-technology-roadmap",
+    "published_at": "2026-09-29T00:00:00Z",
+    "source_visibility": "public",
+    "tags": [
+      "欧洲与北美",
+      "量子技术",
+      "研发治理"
+    ],
+    "review_note": "2026-10-21人工核验公开正文；已直读NATO路线图Scope、活动时间表及Roadmap Structure，并核对同日发布说明；7月30日为批准日期，9月29日为公开日期。核验URL：https://nato.int/en/about-us/official-texts-and-resources/official-texts/2026/09/29/quantum-technology-roadmap 日期精度为日。初始编辑内容，无作者贡献奖励。"
+  },
+  {
+    "title": "数字政府指数上升，不等于服务已经好用：OECD给出执行层检查表",
+    "summary": "OECD在2026年发布首份《数字政府展望》。报告比较36个成员国和8个候选加入国的数字政府建设。理解排名时，需要把政策制定、实际执行和效果监测分开。",
+    "body": "## 核心进展\n\nOECD于2026年6月15日发布《数字政府展望2026》。报告中的2025版数字政府指数，成员国平均得分从2023版的0.61升至0.70，满分为1。报告同时指出，战略框架的进步仍快于实际执行与效果监测，建设了平台和制度，并不自动意味着服务已经贯通。\n\n## 为什么值得关注\n\n报告把治理过程拆成战略、政策工具、执行和监测，适合用来检查政务数字项目的薄弱环节。例如，数据是否能够重复使用、机构能否共享基础能力，以及有没有持续收集用户反馈，都比单纯统计上线系统数量更接近服务结果。这是依据报告作出的项目评估建议，不是报告对某个具体政府项目的结论。\n\n## 证据与边界\n\n**报告年份、指数版本和数据观察期是三回事。**相关调查在2025年上半年开展，主要覆盖2023至2024年的政策与行动；印尼和泰国另有观察期注释。数字政府指数覆盖36个OECD成员国及8个候选加入国，开放数据指数的样本略有不同。因此，这些得分不能直接代表2026年实时服务体验，也不能外推成中国各地的排名。引用国别结果时应连同样本、方法和年份一起保留。\n\n## 原始来源\n\n[OECD报告与出版日期](https://www.oecd.org/en/publications/digital-government-outlook_0496b2bc-en.html)\n[第一章：方法、样本和指数结果](https://www.oecd.org/en/publications/digital-government-outlook_0496b2bc-en/full-report/digital-governments-at-a-turning-point_0491aad4.html)\n\n本文为独立中文解读，观点不代表OECD或其成员国；含义有歧义时以英文原文为准。",
+    "category": "政治与公共政策",
+    "level": "ordinary",
+    "evidence": "official",
+    "source_name": "OECD",
+    "source_url": "https://www.oecd.org/en/publications/digital-government-outlook_0496b2bc-en.html",
+    "published_at": "2026-06-15T00:00:00Z",
+    "source_visibility": "public",
+    "tags": [
+      "跨国比较",
+      "数字政府",
+      "公共服务"
+    ],
+    "review_note": "2026-10-21人工核验公开正文；已直读报告第一章Box1.1、方法说明及1.3节，核对出版页日期。数据主要对应2023—2024，未伪装为2026实时统计。核验URL：https://www.oecd.org/en/publications/digital-government-outlook_0496b2bc-en/full-report/digital-governments-at-a-turning-point_0491aad4.html 日期精度为日。初始编辑内容，无作者贡献奖励。"
+  },
+  {
+    "title": "FAO九月国际食品价格上涨，谷物与肉类走势出现分化",
+    "summary": "FAO公布2026年9月食品价格指数为136.0，环比上涨1.5%。谷物价格指数涨幅更高，肉类则回落。这个指标衡量国际商品市场，不能直接当作本地超市涨价幅度。",
+    "body": "## 核心进展\n\nFAO在2026年10月2日发布的数据显示，9月食品价格指数均值为136.0，环比上涨1.5%，同比上涨5.8%。其中谷物指数环比上涨5.1%，肉类指数下降1.1%，乳制品小幅下降0.1%。不同品类并未同步涨价，仅看总指数会掩盖这种分化。\n\n## 为什么值得关注\n\n这份月报把价格变化与运输、天气和供应预期联系起来。官方正文提到黑海物流约束、部分产区干燥天气，以及出口可供量变化。对食品加工、采购和农业研究者，更实用的读法是先选出自己关注的品类，再核对具体产地、运费与库存条件。FAO同时提供历史数据下载，可以比较同一口径下的月度变化，避免把单月波动直接写成长期趋势。\n\n## 证据与边界\n\n**观察期是2026年9月，发布日期是10月2日。**指数跟踪一篮子国际交易食品商品，采用五类商品指数及出口份额权重；它不是某一国家的居民消费价格指数，也不是供应商的实际报价。将国际变化用于本地判断时，还需核对币种、合同周期和当地数据。本文仅解释已发布的统计，不预测下一月价格，也不据此作采购收益保证。\n\n## 原始来源\n\n[FAO月报正文](https://www.fao.org/newsroom/detail/fao-food-price-index-rises-in-september-amid-weather-concerns-and-transport-disruptions/en)\n[指数口径与历史数据入口](https://www.fao.org/worldfoodsituation/FoodPricesIndex/en/)",
+    "category": "农业与食品",
+    "level": "ordinary",
+    "evidence": "official",
+    "source_name": "FAO 联合国粮农组织",
+    "source_url": "https://www.fao.org/newsroom/detail/fao-food-price-index-rises-in-september-amid-weather-concerns-and-transport-disruptions/en",
+    "published_at": "2026-10-02T00:00:00Z",
+    "source_visibility": "public",
+    "tags": [
+      "全球",
+      "食品价格",
+      "农业数据"
+    ],
+    "review_note": "2026-10-21人工核验公开正文；已直读FAO新闻正文及指标方法页，逐项核对136.0、1.5%、5.8%、谷物5.1%、肉类-1.1%、乳制品-0.1%。主链接为固定月报，避免动态指数页日后换月。核验URL：https://www.fao.org/newsroom/detail/fao-food-price-index-rises-in-september-amid-weather-concerns-and-transport-disruptions/en 日期精度为日。初始编辑内容，无作者贡献奖励。"
+  },
+  {
+    "title": "全球失业率预测稳定，岗位质量与社会保障缺口仍大",
+    "summary": "ILO年初报告预计2026年全球失业率为4.9%。同一报告估计，更广义的岗位缺口将达4.08亿人。判断就业改善时，还需要看非正规就业、劳动收入与保障覆盖。",
+    "body": "## 核心进展\n\nILO于2026年1月14日发布《就业与社会趋势2026》，预计当年全球失业率保持在4.9%。报告同时指出，更广义的岗位缺口预计达到4.08亿人，约21亿劳动者处于非正规就业，接近3亿劳动者仍陷于极端工作贫困。稳定的总量指标，可能与收入和保障方面的困难同时存在。\n\n## 为什么值得关注\n\n岗位缺口关注想获得有报酬工作、却未能获得工作的人，范围比失业指标更广。将两者混为一谈，会低估尚未得到满足的就业需求。做民生研究或地区比较时，可以同时核对是否有工作、工作是否正规、收入能否保障生活，以及有没有基本社会保护。这是一种读数据的方法；新增岗位数量本身不足以回答全部问题。\n\n## 证据与边界\n\n**这些是2026年年初报告中的全球估计与预测。**本条没有把它们写成10月已经完成核算的实绩。不同收入组国家的劳动人口与生产率趋势存在差异，全球平均数也不能代替某个城市或行业的情况。岗位缺口、非正规就业和工作贫困是不同统计概念，数字不能直接相加。本次核验范围为ILO公开报告页的要点说明，未声称逐页审阅完整报告。\n\n## 原始来源\n\n[ILO报告、发布日期与公开要点](https://www.ilo.org/publications/flagship-reports/employment-and-social-trends-2026)",
+    "category": "社会民生",
+    "level": "ordinary",
+    "evidence": "official",
+    "source_name": "ILO 国际劳工组织",
+    "source_url": "https://www.ilo.org/publications/flagship-reports/employment-and-social-trends-2026",
+    "published_at": "2026-01-14T00:00:00Z",
+    "source_visibility": "public",
+    "tags": [
+      "全球",
+      "劳动保障",
+      "统计口径"
+    ],
+    "review_note": "2026-10-21人工核验公开正文；已直读ILO报告页Key messages与出版日期，核对失业率预测4.9%、岗位缺口预测408million、非正规就业2.1billion、极端工作贫困近300million；未读取完整PDF。核验URL：https://www.ilo.org/publications/flagship-reports/employment-and-social-trends-2026 日期精度为日。初始编辑内容，无作者贡献奖励。"
+  },
+  {
+    "title": "网络安全事件报告可以先报后补，处理流程需提前明确责任人",
+    "summary": "国家网信办公布的办法对较大以上网络安全事件规定了分级报告要求。原因尚未完全查清时，可以先报基本情况再及时补充。机构应区分自身类型和报告渠道，不能把所有事件套用同一时限。",
+    "body": "## 核心进展\n\n国家网信办2025年9月公布《国家网络安全事件报告管理办法》，文件规定自同年11月1日起施行。对于较大以上事件，关键信息基础设施运营者、中央和国家机关相关单位、其他网络运营者分别适用不同的报告渠道和时限。其他网络运营者应及时向属地省级网信部门报告，最迟不超过4小时；行业另有专门规定的，还需遵守相应要求。\n\n## 为什么值得关注\n\n容易遗漏的是第七条允许分阶段报告：规定时间内尚不能判断原因、影响或趋势时，可以先提供涉事单位、系统和已掌握的事件基本情况，其他内容及时补报。这意味着机构预案需要明确谁负责初报、谁保存处置记录、后续由谁补充。第五条还要求通过合同等形式，落实安全与运维服务方及时向网络运营者报告并协助报告的责任。\n\n## 证据与边界\n\n适用地域是中华人民共和国境内，是否达到较大以上等级，应结合附件的分级指南判断。**四小时不是所有机构、所有事件通用的宽限期**，也不代表可以等待到最后一刻。处置结束后，文件还要求在30日内按原渠道提交总结报告。本条依据公开条文解释流程要点，具体事件的分级、适用行业规则及责任认定仍需机构依法核实。\n\n## 原始来源\n\n[国家网信办：管理办法及分级指南全文](https://www.cac.gov.cn/2025-09/15/c_1759583017717009.htm)",
+    "category": "法律法规",
+    "level": "ordinary",
+    "evidence": "official",
+    "source_name": "国家互联网信息办公室",
+    "source_url": "https://www.cac.gov.cn/2025-09/15/c_1759583017717009.htm",
+    "published_at": "2025-09-15T00:00:00Z",
+    "source_visibility": "public",
+    "tags": [
+      "中国",
+      "网络安全",
+      "事件报告"
+    ],
+    "review_note": "2026-10-21人工核验公开正文；已直读官方全文第2、4、5、7、8、14条与分级附件；文件落款2025-09-11、网页发布2025-09-15、生效2025-11-01，分别保留不混淆。核验URL：https://www.cac.gov.cn/2025-09/15/c_1759583017717009.htm 日期精度为日。初始编辑内容，无作者贡献奖励。"
+  },
+  {
+    "title": "Themis完成第二次加注演练，复用火箭还要验证地面回收流程",
+    "summary": "ESA公布Themis可重复使用火箭级验证机完成第二次低温加注演练。试验使用液氮，并检查部分机器人地面操作。进展属于地面验证，飞行回收能力仍待后续试验确认。",
+    "body": "## 核心进展\n\nESA于2026年10月7日介绍，Themis验证机已在9月29日于瑞典Esrange航天中心完成第二次加注演练。团队测试低温条件下的箭体系统与倒计时流程，并检查部分计划中的机器人地面操作。这次使用液氮；验证机计划使用的推进剂则是液氧与液态甲烷，两者不能混写。\n\n## 为什么值得关注\n\n复用火箭的工作并不在着陆时结束。回收后还需固定箭体、排出剩余推进剂，并为检查和维修做好准备。ESA说明，Themis的地面机器人被设计为识别着陆后的火箭位置并自动连接，让人员保持安全距离。对观察复用进展的人，这提供了飞行之外的检查项：地面连接、剩余推进剂处理和重复使用前的准备，是否经过相应测试。\n\n## 证据与边界\n\n**本条记录的是地面演练，不是成功飞行回收的公告。**报道中的自动连接和排液安排包含设计目标，本次仅测试其中部分要素。文中提到的20米乘20米着陆区域属于设计要求，不能据此宣称已经取得该精度。资料适用于ESA与欧洲合作方的Themis项目，也不能用一次演练推断商业发射成本或未来周转时间。原始事件日与公告日已分别注明。\n\n## 原始来源\n\n[ESA：第二次加注演练完整公告](https://www.esa.int/Enabling_Support/Space_Transportation/Future_space_transportation/Themis_completes_second_fuelling_rehearsal)",
+    "category": "航空航天",
+    "level": "ordinary",
+    "evidence": "official",
+    "source_name": "ESA 欧洲航天局",
+    "source_url": "https://www.esa.int/Enabling_Support/Space_Transportation/Future_space_transportation/Themis_completes_second_fuelling_rehearsal",
+    "published_at": "2026-10-07T00:00:00Z",
+    "source_visibility": "public",
+    "tags": [
+      "欧洲",
+      "可重复使用火箭",
+      "工程验证"
+    ],
+    "review_note": "2026-10-21人工核验公开正文；已直读ESA完整公告，核对事件日2026-09-29、公告日2026-10-07、液氮替代演练、机器人部分要素测试及设计着陆区域；没有把设计目标或加注演练当飞行结果。核验URL：https://www.esa.int/Enabling_Support/Space_Transportation/Future_space_transportation/Themis_completes_second_fuelling_rehearsal 日期精度为日。初始编辑内容，无作者贡献奖励。"
+  },
+  {
+    "category": "人工智能",
+    "title": "vLLM 0.32把低精度KV缓存扩到更多GPU，省显存也要看首字延迟",
+    "summary": "新版扩大了低精度KV缓存支持范围。项目给出的部分测试中，吞吐提高，但首字等待也变长；选配置时应同时看两项指标。",
+    "body": "## 发生了什么\n\nvLLM 0.32发布说明扩展了NVFP4、FP8等缓存方案。**KV缓存**可以理解为模型阅读上下文时留下的“临时笔记”，压缩它能省显存，但并非没有代价。\n\n## 有什么用\n\n维护推理服务时，可先比较显存占用、每秒输出量和首字等待时间，再决定是否切换。官方列出的GLM-5.x测试使用SM100硬件与默认FP8 KV配置：每个计算分片（rank）的KV显存减半，吞吐提高约2.3%至5.5%，首字延迟却增加约7%至11%。这些数字来自项目测试，不是对所有显卡的承诺。\n\n## 适用边界\n\n先在相同模型、硬件和请求长度下做对照，并检查回答质量。这里核验的是发布说明，未在本站复跑性能测试。\n\n## 原始来源\n\n[GitHub · vLLM 官方发布](https://github.com/vllm-project/vllm/releases/tag/v0.32.0)",
+    "source_url": "https://github.com/vllm-project/vllm/releases/tag/v0.32.0",
+    "source_name": "GitHub · vLLM 官方发布",
+    "published_at": "2026-10-18T06:50:48Z",
+    "evidence": "repository",
+    "level": "featured",
+    "tags": [
+      "推理部署",
+      "显存",
+      "KV缓存"
+    ],
+    "review_note": "2026-10-21 已核验官方公开页面正文与页面日期；未把机构声明当作独立复现实验。 首批编辑内容，不发贡献奖励。 独立复核 GitHub v0.32.0 发布正文及 API 时间；保留 SM100、GLM-5.x、FP8 和单 rank 的测试条件。"
+  },
+  {
+    "category": "材料科学",
+    "title": "材料AI预测很准，也可能看错了地方：衍射图研究发现背景偏差",
+    "summary": "两种模型的预测准确率相近，判断依据却不同。一种会依赖背景噪声，加入物理模拟预训练的模型则更关注真正的衍射信号。",
+    "body": "## 发生了什么\n\n研究用钛合金的X射线衍射图比较两种神经网络：一种先学自然照片，另一种还学过模拟衍射图。它们再用250张实验图微调，都能取得较高准确率。\n\n## 为什么值得关注\n\n鲁棒性检查发现，前者可能借助无关背景作判断，后者更关注**布拉格反射**——图中与晶体结构相关的信号。对做材料检测的人，启示是：准确率高之外，还要检查模型究竟依据了什么。\n\n## 证据与边界\n\n论文2026年10月19日公开，为已接收的同行评审早期版本，排版内容还可能更新。这里只转述公开摘要；不能据这一材料案例断言所有图像模型都不适合科研。\n\n## 原始来源\n\n[Communications Materials](https://www.nature.com/articles/s43246-026-01354-z)",
+    "source_url": "https://www.nature.com/articles/s43246-026-01354-z",
+    "source_name": "Communications Materials",
+    "published_at": "2026-10-19T00:00:00Z",
+    "evidence": "peer_reviewed",
+    "level": "featured",
+    "tags": [
+      "材料检测",
+      "模型可靠性",
+      "衍射"
+    ],
+    "review_note": "2026-10-21 已核验公开摘要、日期和已接收早期版本声明，未声称复现论文实验。 首批编辑内容，不发贡献奖励。 独立直读出版社页面 HTTP 200：Ti–6Al–4V、两套同步辐射数据、250张微调图；2026-10-19发表，已接收同行评审早期版本。"
+  },
+  {
+    "category": "前沿科技",
+    "title": "机器人模型开始兼顾全身动作与分工协作，精细手部操作仍是短板",
+    "summary": "Google DeepMind展示了同一模型控制不同机器人身体的路线。官方也列出部分精细动作成功率偏低，演示效果与稳定落地仍需分开判断。",
+    "body": "## 发生了什么\n\nGemini Robotics 2将动作控制、任务规划和设备端模型分开设计。官方展示了同一模型检查点控制不同机器人，覆盖行走、取放物品和双臂操作。\n\n## 有什么用\n\n对机器人开发者，值得关注的是**换机身后的适配成本**，而非只看单个演示。选型时可把身体控制、上层规划、离线运行需求分别列出，再检查自己能获得哪种模型访问权限。\n\n## 证据与边界\n\n这是2026年7月30日的厂商公开说明。官方承认多指精细操作仍困难，部分模型仅向早期合作伙伴开放；这些演示不证明机器人已能无人值守完成所有家庭任务。\n\n## 原始来源\n\n[Google DeepMind 官方](https://deepmind.google/blog/gemini-robotics-2-brings-whole-body-intelligence-to-robots/)",
+    "source_url": "https://deepmind.google/blog/gemini-robotics-2-brings-whole-body-intelligence-to-robots/",
+    "source_name": "Google DeepMind 官方",
+    "published_at": "2026-07-30T00:00:00Z",
+    "evidence": "official",
+    "level": "ordinary",
+    "tags": [
+      "机器人",
+      "具身智能",
+      "技术路线"
+    ],
+    "review_note": "2026-10-21 已核验官方公开页面正文与页面日期；未把机构声明当作独立复现实验。 首批编辑内容，不发贡献奖励。"
+  },
+  {
+    "category": "能源与环境",
+    "title": "从煤及副产物里回收关键矿物：美国五个中试项目入选资助谈判",
+    "summary": "美国能源部选出五个关键矿物回收项目，拟安排合计7500万美元。项目仍须经过资助谈判，入选不等于资金已到账，技术重点是中试设施。",
+    "body": "## 发生了什么\n\n美国能源部2026年7月1日公布五个入选项目，拟安排合计7500万美元，支持从煤及煤基原料中回收稀土和其他关键材料的中试设施。\n\n## 为什么值得关注\n\n这条技术路线把工业原料和副产物视为潜在矿源。关注资源循环的团队，可以继续追踪回收率、分离成本、能耗与废物处理，而不是只看其中“含有多少金属”。\n\n## 适用边界\n\n适用地区为美国。公告明确说明，**入选资助谈判不构成拨款承诺**，金额和其他条件仍须协商；因此不能写成五个项目已经拿到资金。中试支持也不等于建成量产，更不能据此认定比传统矿源便宜或环保。项目进度和实际环境表现仍需后续资料。\n\n## 原始来源\n\n[美国能源部](https://www.energy.gov/cmei/articles/does-office-critical-minerals-and-energy-innovation-awards-75-million-accelerate)",
+    "source_url": "https://www.energy.gov/cmei/articles/does-office-critical-minerals-and-energy-innovation-awards-75-million-accelerate",
+    "source_name": "美国能源部",
+    "published_at": "2026-07-01T00:00:00Z",
+    "evidence": "official",
+    "level": "ordinary",
+    "tags": [
+      "关键矿物",
+      "资源回收",
+      "中试"
+    ],
+    "review_note": "2026-10-21 已核验官方公开页面正文与页面日期；未把机构声明当作独立复现实验。 首批编辑内容，不发贡献奖励。 独立复核实际链接正文：页面日期 2026-07-01、五个项目、拟合计7500万美元；末段明确入选谈判不构成拨款承诺，已据此收紧标题与正文。"
+  },
+  {
+    "category": "医疗健康",
+    "title": "WHO新报告提醒：慢性病防治不能只看全国平均数",
+    "summary": "WHO把慢性病及风险因素按人群差异展开比较。全国平均指标可能掩盖部分群体的负担，数据缺口本身也会影响判断。",
+    "body": "## 发生了什么\n\nWHO于2026年10月20日发布慢性病不平等报告的介绍，覆盖癌症、心血管疾病、慢性呼吸系统疾病和糖尿病，以及相关风险因素。\n\n## 有什么用\n\n对公共卫生研究和服务规划，关键是把“平均水平”进一步拆开，看哪些人群更难获得预防、诊断与治疗。阅读这类数据时，应同时查看分组方式、调查年份和缺失数据。\n\n## 证据与边界\n\n本条依据WHO官方介绍整理，未逐项重算报告数据。**群体统计不能直接判断个人病情**；不同国家可获得的数据不同，缺少记录也不等于没有差异。\n\n## 原始来源\n\n[世界卫生组织](https://www.who.int/news/item/20-10-2026-who-report-examines-inequalities-in-noncommunicable-diseases-and-their-risk-factors)",
+    "source_url": "https://www.who.int/news/item/20-10-2026-who-report-examines-inequalities-in-noncommunicable-diseases-and-their-risk-factors",
+    "source_name": "世界卫生组织",
+    "published_at": "2026-10-20T00:00:00Z",
+    "evidence": "official",
+    "level": "ordinary",
+    "tags": [
+      "公共卫生",
+      "慢性病",
+      "数据分组"
+    ],
+    "review_note": "2026-10-21 已核验官方公开页面正文与页面日期；未把机构声明当作独立复现实验。 首批编辑内容，不发贡献奖励。"
+  },
+  {
+    "category": "公共安全",
+    "title": "大型活动防暑应提前做进场地和流程，WHO发布新证据综述",
+    "summary": "高温风险不仅取决于观众是否喝水，也与人流、遮阴和现场医疗组织有关。WHO的新资料把这些环节放到活动筹备中一起考虑。",
+    "body": "## 发生了什么\n\nWHO于2026年9月30日发布大型活动热相关疾病防治资料，汇集既有研究和活动经验，面向参与者、志愿者及工作人员的风险管理。\n\n## 有什么用\n\n活动组织者可用它检查饮水点和降温区是否容易到达、时间安排是否避开热时段、人流能否顺畅移动，以及现场医疗与外部救援怎样衔接。\n\n## 证据与边界\n\n它是国际公共卫生参考，**不替代当地活动审批、职业安全要求和医疗方案**。新闻稿中的总体研究结果不能保证某一场活动的救治效果；场地、天气和人群特点仍需分别评估。\n\n## 原始来源\n\n[世界卫生组织](https://www.who.int/news/item/30-09-2026-who-releases-new-guidance-to-prevent-heat-related-illness-at-mass-gatherings)",
+    "source_url": "https://www.who.int/news/item/30-09-2026-who-releases-new-guidance-to-prevent-heat-related-illness-at-mass-gatherings",
+    "source_name": "世界卫生组织",
+    "published_at": "2026-09-30T00:00:00Z",
+    "evidence": "official",
+    "level": "ordinary",
+    "tags": [
+      "活动安全",
+      "高温",
+      "应急准备"
+    ],
+    "review_note": "2026-10-21 已核验官方公开页面正文与页面日期；未把机构声明当作独立复现实验。 首批编辑内容，不发贡献奖励。"
+  },
+  {
+    "category": "教育与就业",
+    "title": "毕业生见习和培训有不同补贴入口，先确认补贴发给谁",
+    "summary": "2026年青年就业通知附有政策清单，覆盖培训、见习和企业吸纳等环节。见习补贴主要面向接收单位，不能把所有项目都理解为直接发给个人。",
+    "body": "## 可以关注什么\n\n人社部、财政部2026年青年就业通知列出了培训、技能评价、见习等支持项目。不同项目对毕业时间、证书、合同和申请主体的要求不同。\n\n## 怎么查更有效\n\n先确认自己属于哪类对象，再到当地人社部门查申请窗口和材料。见习补贴面向符合条件的接收单位，支出用途包括基本生活费和人身意外伤害保险；它不是统一发到所有毕业生账户的一笔钱。\n\n## 地区与时间\n\n文件适用中国。正文落款为2026年2月13日，所引官方转载页发布于3月22日。其中，“见习期未满即签劳动合同，可获剩余期限见习补贴”这项措施执行至2026年12月31日；该日期不能套到所有见习政策上。**具体标准和办理情况以当地公布的实施细则为准**，本条不承诺个人一定符合条件。\n\n## 原始来源\n\n[北京市退役军人事务局转载人社部文件](https://tyjrswj.beijing.gov.cn/fwzl/jycy/202603/t20260322_4563185.html)",
+    "source_url": "https://tyjrswj.beijing.gov.cn/fwzl/jycy/202603/t20260322_4563185.html",
+    "source_name": "北京市退役军人事务局转载人社部文件",
+    "published_at": "2026-03-22T00:10:00Z",
+    "evidence": "official",
+    "level": "ordinary",
+    "tags": [
+      "高校毕业生",
+      "就业见习",
+      "政策清单"
+    ],
+    "review_note": "2026-10-21 已读官方转载完整正文和附件，区分文件落款、转载时间与部分条款截止日期。 首批编辑内容，不发贡献奖励。 独立复核附件第6项，截止日专指提前签订劳动合同后给予剩余期限见习补贴的措施。"
+  },
+  {
+    "category": "经济与产业",
+    "title": "把收入拆到多个主体未必能享小微优惠，税务总局公布判断标准",
+    "summary": "官方问答强调要看商业目的、经营实质和交易定价。企业数量增加并不能自动证明业务已独立，享受优惠仍需符合实际条件。",
+    "body": "## 发生了什么\n\n国家税务总局2026年2月25日的问答说明，对缺乏合理商业目的、主要为少缴税而拆分收入的行为，税务机关会综合判断并依法调整。\n\n## 对经营者有什么用\n\n评估组织调整时，应能说明真实经营原因，并保留与实际业务相符的合同、履约和独立核算资料。文件关注动机、业务实质与交易是否公允，不能只凭多张营业执照作判断。\n\n## 适用边界\n\n这是中国税务机关发布的解释材料，**不是一项新的统一减免政策**，页面日期也不等于所有相关税制的生效日。具体业务应结合现行规定及主管税务机关口径核对，不能仅按本文作税务申报。\n\n## 原始来源\n\n[国家税务总局](https://www.chinatax.gov.cn/chinatax/c102414/c5247848/content.html)",
+    "source_url": "https://www.chinatax.gov.cn/chinatax/c102414/c5247848/content.html",
+    "source_name": "国家税务总局",
+    "published_at": "2026-02-25T00:00:00Z",
+    "evidence": "official",
+    "level": "ordinary",
+    "tags": [
+      "小微企业",
+      "经营合规",
+      "税务口径"
+    ],
+    "review_note": "2026-10-21 已读官方问答及正负面清单；没有把问答当作个案税务结论或新增优惠。 首批编辑内容，不发贡献奖励。"
+  },
+  {
+    "category": "交通与基建",
+    "title": "跨区农机运输受阻可用12328协调，宁夏正在简化重复勘验",
+    "summary": "宁夏把跨区农机运输诉求接入12328热线，并采用远程勘验和数据复用。车况、路线未变的申请有相应简化措施，但仍需符合运输许可条件。",
+    "body": "## 发生了什么\n\n交通运输部2026年10月19日发布的报道介绍，宁夏借助12328热线协调跨区农机运输问题，并提供路况咨询。\n\n## 有什么用\n\n报道提到，对车况、路线没有变化的申请，宁夏采用免重复勘验等方式，减少往返办理。经营者遇到跨区通行问题时，可先整理车辆、路线和许可材料，再向当地交通服务渠道核实。\n\n## 地区与边界\n\n这是**宁夏的具体做法**，不能直接推广为全国统一手续。农机运输优先通行或费用优惠都有对应条件，不等于所有车辆都可免证、免检或免费通行。文中实施成效来自官方报道，本站未独立审计。\n\n## 原始来源\n\n[交通运输部 · 中国交通新闻网](https://www.mot.gov.cn/xinwen/jiaotongyaowen/202610/t20261019_4226174.html)",
+    "source_url": "https://www.mot.gov.cn/xinwen/jiaotongyaowen/202610/t20261019_4226174.html",
+    "source_name": "交通运输部 · 中国交通新闻网",
+    "published_at": "2026-10-19T00:34:00Z",
+    "evidence": "official",
+    "level": "ordinary",
+    "tags": [
+      "跨区运输",
+      "农机",
+      "12328"
+    ],
+    "review_note": "2026-10-21 已核验官方公开页面正文与页面日期；未把机构声明当作独立复现实验。 首批编辑内容，不发贡献奖励。"
   }
 ]
