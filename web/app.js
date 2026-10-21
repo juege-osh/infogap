@@ -63,7 +63,7 @@ function empty(title, description, action = '') { return `<div class="empty-stat
 function loading() { return '<div class="loading-state"><span class="spinner"></span><p>正在加载…</p></div>'; }
 function toast(message) { clearTimeout(toastTimer);$('#toast').textContent=message;$('#toast').classList.add('visible');toastTimer=setTimeout(()=>$('#toast').classList.remove('visible'),4200); }
 async function api(path, options = {}) {
-  const response = await fetch(path,{credentials:'same-origin',...options,headers:{'Accept':'application/json',...(options.body?{'Content-Type':'application/json'}:{}),...options.headers}});
+  const response = await fetch(path,{credentials:'same-origin',...options,headers:{'Accept':'application/json',...(!['GET','HEAD'].includes(String(options.method||'GET').toUpperCase())?{'Content-Type':'application/json'}:{}),...options.headers}});
   const data = await response.json().catch(()=>({error:'服务暂时没有响应，请稍后重试'}));
   if (!response.ok) { const error=new Error((data.error || `请求失败（${response.status}）`)+(data.request_id?`（问题编号 ${data.request_id}）`:""));error.status=response.status;error.requestID=data.request_id||"";throw error; }
   return data;
