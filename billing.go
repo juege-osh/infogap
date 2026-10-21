@@ -34,6 +34,8 @@ type billingPlan struct {
 	Credits     int    `json:"credits"`
 }
 
+var centTestPlan = billingPlan{ID: "payment_test", Name: "1分钱真实支付测试", Type: "payment_test", AmountCents: 1}
+
 var billingPlans = []billingPlan{
 	{ID: "monthly", Name: "30天订阅会员", Type: "membership", AmountCents: 990, Days: 30},
 	{ID: "yearly", Name: "365天订阅会员", Type: "membership", AmountCents: 9900, Days: 365},
@@ -177,6 +179,9 @@ func billingScan(row scanner) (*billingOrder, error) {
 	if o.Credits > 0 {
 		o.Type, o.Days = "credits", 0
 	}
+	if o.Plan == centTestPlan.ID {
+		o.Type, o.Days = "payment_test", 0
+	}
 	// Keep historical orders readable/reconcilable, but do not offer an old
 	// WeChat checkout entry now that this site accepts only new Alipay payments.
 	if o.Status != "pending" || o.Channel != "alipay" || !billingPayPayload(o.QRPayload) {
@@ -187,6 +192,9 @@ func billingScan(row scanner) (*billingOrder, error) {
 		if billingWebURL(o.QRPayload) {
 			o.PayURL = o.QRPayload
 			o.PaymentKind = "link"
+			if o.Type == "payment_test" {
+				o.PaymentKind = "qr"
+			}
 		}
 	}
 	return o, nil
@@ -252,6 +260,13 @@ func (s *server) billingCreate(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	if req.Plan == centTestPlan.ID {
+		if u.Role != "admin" || u.Email != founderEmail || u.TestMode {
+			fail(w, 403, "仅站长管理员模式可生成真实支付测试订单")
+			return
+		}
+		plan = &centTestPlan
+	}
 	if plan == nil {
 		fail(w, 400, "请选择有效套餐")
 		return
@@ -286,9 +301,9 @@ func (s *server) billingCreate(w http.ResponseWriter, r *http.Request) {
 	id := newPaymentNumber("P")
 	expires := now.Add(30 * time.Minute)
 	storedDays := plan.Days
-	if plan.Type == "credits" {
-		// Old databases require days>0. Credits are the immutable product discriminator;
-		// this compatibility placeholder is never granted or exposed as membership days.
+	if plan.Type == "credits" || plan.Type == "payment_test" {
+		// Old databases require days>0. The saved plan and credit snapshot determine
+		// the product; this placeholder never grants or exposes membership days.
 		storedDays = 1
 	}
 	_, err = s.db.ExecContext(r.Context(), `INSERT INTO billing_orders(id,user_id,plan,name,amount_cents,days,credits,channel,expires_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, id, u.ID, plan.ID, plan.Name, plan.AmountCents, storedDays, plan.Credits, req.Channel, stamp(expires), stamp(now), stamp(now))
@@ -494,6 +509,11 @@ func (s *server) billingApply(result huifuPaymentResult, eventKey string) error 
 	now := s.now()
 	if result.TransactionStatus == "F" {
 		_, err = tx.Exec("UPDATE billing_orders SET status='failed',updated_at=? WHERE id=?", stamp(now), o.ID)
+	} else if o.Plan == centTestPlan.ID {
+		if o.AmountCents != 1 || o.Credits != 0 {
+			return errors.New("invalid test payment snapshot")
+		}
+		_, err = tx.Exec("UPDATE billing_orders SET status='success',platform_trade_no=?,paid_at=?,updated_at=? WHERE id=?", result.PlatformTradeNo, stamp(now), stamp(now), o.ID)
 	} else if o.Credits > 0 {
 		// Price and quantity come from the stored order, never from callback/client input.
 		// Both the platform trade and the order grant must be unique before any credit sticks.

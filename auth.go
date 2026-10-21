@@ -48,6 +48,13 @@ func (s *server) authCode(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "暂时无法发送验证码")
 		return
 	}
+	if id != 0 {
+		var testAccount int
+		if e := s.db.QueryRow("SELECT COUNT(*) FROM test_accounts WHERE user_id=?", id).Scan(&testAccount); e != nil || testAccount > 0 {
+			fail(w, 403, "测试账号仅能由站长切换进入")
+			return
+		}
+	}
 	if disabled != 0 {
 		fail(w, 403, "账号已停用")
 		return
@@ -184,6 +191,11 @@ func (s *server) authVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		fail(w, 500, "登录失败")
+		return
+	}
+	var testAccount int
+	if e := tx.QueryRow("SELECT COUNT(*) FROM test_accounts WHERE user_id=?", u.ID).Scan(&testAccount); e != nil || testAccount > 0 {
+		fail(w, 403, "测试账号仅能由站长切换进入")
 		return
 	}
 	if u.Disabled {

@@ -76,3 +76,17 @@ GET /api/admin/overview additionally returns summary_jobs:{pending,completed,fai
 `GET /api/gaps?q=JX-AI-116` 识别完整新编号，兼容旧格式 `PT01`、`JX116`、`XY08`、`DJ205`，忽略字母大小写及首尾空白。新编号的等级和主题代码必须属于已定义映射，数字至少两位。`PT-01` 等两段格式和纯数字 `116` 不作为编号识别，继续按普通关键词搜索。
 
 编号搜索按全站数字ID精确定位。为保留旧引用，合法的旧等级、旧主题前缀仍可定位同一ID，响应显示该内容当前的 `code`；前缀不替代 `level`、`category` 筛选。当前状态、视图、旅行条件、订阅、段位延迟等筛选照常生效。编号不会授予阅读权：未解锁正文不返回，内部出处继续隐藏，未到可见时间的内容也不会因命中编号而暴露。
+
+## 站长测试模式与功能自检（1.0.6）
+
+`User` 新增 `test_mode`、`can_test_mode`。仅原始登录会话属于已验证站长时，允许切换测试模式或执行自检；前端传入用户 ID、角色等额外字段不会被接受。
+
+- `POST /api/admin/test-mode`：`{tier:0..9,credits:0..100000,member:bool,quality:bool,reset:bool}`。创建或复用独立测试账号，并仅对当前登录会话启用。每次应用重置今日额度和测试长期额度；`reset=true` 另清空该测试账号的解锁、收藏、订阅和额度流水。返回 `{user}`。
+- `DELETE /api/admin/test-mode`：当前会话返回原站长身份，返回 `{user}`。
+- `POST /api/admin/diagnostics`：`{group:"all"|"service"|"auth"|"reading"|"subscriptions"|"payment"}`。返回 `{id,version,commit,at,group,duration_ms,passed,checks:[{name,status,detail}],notice}`。`status` 为 `passed/failed/ready/unavailable`；配置未就绪会使 `passed=false`。业务检查使用独立内存数据库，服务检查只读生产配置和数据库。
+
+测试账号没有独立邮箱登录入口，不计入普通成员数量，也不出现在成员管理列表。测试模式按真实用户逻辑限制阅读、时效、额度和订阅；不能发起真实付款、正式投稿或反馈。站长另开的登录会话仍保持管理员身份。
+
+`POST /api/billing/orders` 额外支持站长在管理员模式传入 `{plan:"payment_test",channel:"alipay"}`。金额由服务端固定为 1 分，订单 `type="payment_test"`、`days=0`、`credits=0`；核验成功只更新订单和支付事件，不发放会员或额度。普通成员、审核员和测试用户均无法创建。测试套餐不出现在普通套餐目录。
+
+API 错误包含 `request_id`，并通过 `X-Request-ID` 返回。服务器错误日志记录相同编号、接口路由、状态和耗时，不记录邮箱、验证码或正文。

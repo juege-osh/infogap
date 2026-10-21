@@ -27,7 +27,7 @@ import (
 )
 
 const founderEmail = "1402272093@qq.com"
-const version = "1.0.5"
+const version = "1.0.6"
 
 var buildCommit = "dev"
 
@@ -50,6 +50,8 @@ type Entitlements struct {
 }
 
 type User struct {
+	TestMode              bool         `json:"test_mode"`
+	CanTestMode           bool         `json:"can_test_mode"`
 	ID                    int64        `json:"id"`
 	MembershipUntil       string       `json:"membership_until"`
 	IsMember              bool         `json:"is_member"`
@@ -98,6 +100,7 @@ func (s *server) decorate(u *User) *User {
 	if u == nil {
 		return nil
 	}
+	u.CanTestMode = u.TestMode || (u.Role == "admin" && u.Email == founderEmail)
 	u.TierIndex = 0
 	for i, t := range tiers {
 		if u.Points >= t.MinPoints {
@@ -155,7 +158,7 @@ func send(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 func fail(w http.ResponseWriter, status int, msg string) {
-	send(w, status, map[string]any{"error": msg})
+	send(w, status, map[string]any{"error": msg, "request_id": w.Header().Get("X-Request-ID")})
 }
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
@@ -180,7 +183,7 @@ func allowedURL(v string) bool {
 	u, e := url.Parse(v)
 	return e == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != "" && u.User == nil && !strings.ContainsAny(v, "\r\n")
 }
-func (s *server) current(r *http.Request) *User {
+func (s *server) actor(r *http.Request) *User {
 	c, e := r.Cookie("infogap_session")
 	if e != nil || len(c.Value) != 64 {
 		return nil
@@ -190,6 +193,23 @@ func (s *server) current(r *http.Request) *User {
 		return nil
 	}
 	return s.decorate(u)
+}
+func (s *server) current(r *http.Request) *User {
+	actor := s.actor(r)
+	if actor == nil || !actor.CanTestMode {
+		return actor
+	}
+	cookie, _ := r.Cookie("infogap_session")
+	user, err := userScan(s.db.QueryRow("SELECT "+prefixCols("u.", userCols)+" FROM test_sessions ts JOIN test_accounts ta ON ta.user_id=ts.user_id JOIN users u ON u.id=ta.user_id WHERE ts.session_hash=? AND ta.owner_id=? AND u.role='member' AND u.disabled=0", digest(cookie.Value), actor.ID))
+	if err == sql.ErrNoRows {
+		return actor
+	}
+	if err != nil {
+		return nil
+	}
+	s.decorate(user)
+	user.TestMode, user.CanTestMode = true, true
+	return user
 }
 func prefixCols(p, s string) string { return p + strings.ReplaceAll(s, ",", ","+p) }
 func (s *server) require(w http.ResponseWriter, r *http.Request) *User {
@@ -216,7 +236,7 @@ func (s *server) stats(u *User) map[string]int {
 	n := 0
 	_ = s.db.QueryRow("SELECT COUNT(*) FROM gaps g WHERE g.status='published'"+visible, args...).Scan(&n)
 	m["published"] = n
-	for key, q := range map[string]string{"sources": "SELECT COUNT(*) FROM sources WHERE enabled=1", "members": "SELECT COUNT(*) FROM users WHERE disabled=0"} {
+	for key, q := range map[string]string{"sources": "SELECT COUNT(*) FROM sources WHERE enabled=1", "members": "SELECT COUNT(*) FROM users WHERE disabled=0 AND id NOT IN (SELECT user_id FROM test_accounts)"} {
 		n = 0
 		_ = s.db.QueryRow(q).Scan(&n)
 		m[key] = n
@@ -269,6 +289,9 @@ func (s *server) routes() http.Handler {
 	m.HandleFunc("POST /api/admin/users/{id}", s.manageUser)
 	m.HandleFunc("POST /api/admin/sources/{id}", s.manageSource)
 	s.billingRoutes(m)
+	m.HandleFunc("POST /api/admin/test-mode", s.setTestMode)
+	m.HandleFunc("POST /api/admin/diagnostics", s.diagnostics)
+	m.HandleFunc("DELETE /api/admin/test-mode", s.exitTestMode)
 	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { fail(w, 404, "接口不存在") })
 	m.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" && r.Method != "HEAD" {
@@ -295,6 +318,18 @@ func (s *server) routes() http.Handler {
 		http.ServeFile(w, r, f)
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			response := &supportResponse{ResponseWriter: w, status: 200}
+			w = response
+			requestID := "RQ-" + token(8)
+			w.Header().Set("X-Request-ID", requestID)
+			started := time.Now()
+			defer func() {
+				if response.status >= 400 && s.origin != "http://diagnostic.invalid" {
+					log.Printf("api_error request_id=%s method=%s route=%q status=%d duration_ms=%d", requestID, r.Method, r.Pattern, response.status, time.Since(started).Milliseconds())
+				}
+			}()
+		}
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("X-Frame-Options", "DENY")
@@ -319,6 +354,12 @@ func (s *server) routes() http.Handler {
 			}
 			if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 				fail(w, 415, "请使用 JSON 请求")
+				return
+			}
+		}
+		if r.Method == "POST" && (r.URL.Path == "/api/billing/orders" || r.URL.Path == "/api/submissions" || (strings.HasPrefix(r.URL.Path, "/api/gaps/") && strings.HasSuffix(r.URL.Path, "/report"))) {
+			if u := s.current(r); u != nil && u.TestMode {
+				fail(w, 403, "测试模式支持阅读、收藏和订阅；付款、正式投稿和反馈请先返回管理员模式")
 				return
 			}
 		}

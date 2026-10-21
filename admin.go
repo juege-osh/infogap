@@ -44,7 +44,7 @@ func (s *server) overview(w http.ResponseWriter, r *http.Request) {
 	users := []*User{}
 	invites := []map[string]any{}
 	if u.Role == "admin" {
-		rows, e = s.db.Query("SELECT " + userCols + " FROM users ORDER BY id DESC LIMIT 500")
+		rows, e = s.db.Query("SELECT " + userCols + " FROM users WHERE id NOT IN (SELECT user_id FROM test_accounts) ORDER BY id DESC LIMIT 500")
 		if e != nil {
 			fail(w, 500, "读取失败")
 			return

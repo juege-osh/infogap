@@ -227,6 +227,7 @@ func (s *server) unlock(w http.ResponseWriter, r *http.Request) {
 	if u == nil {
 		return
 	}
+	isTestMode := u.TestMode
 	id := idParam(r)
 	tx, err := s.db.BeginTx(r.Context(), nil)
 	if err != nil {
@@ -239,6 +240,7 @@ func (s *server) unlock(w http.ResponseWriter, r *http.Request) {
 		fail(w, 401, "请重新登录")
 		return
 	}
+	u.TestMode = isTestMode
 	s.decorate(u)
 	now := s.now()
 	day := dayKey(now)
@@ -309,6 +311,7 @@ func (s *server) unlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u, _ = userScan(s.db.QueryRow("SELECT "+userCols+" FROM users WHERE id=?", u.ID))
+	u.TestMode = isTestMode
 	g, _ = s.oneGap(id, u)
 	send(w, 200, map[string]any{"gap": g, "user": s.decorate(u)})
 }
