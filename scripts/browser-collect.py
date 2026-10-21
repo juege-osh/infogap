@@ -9,7 +9,6 @@ session, service environment or credential is passed to the browser container.
 """
 import argparse
 import contextlib
-import datetime as dt
 import fcntl
 import hashlib
 import importlib.util
@@ -241,11 +240,9 @@ def validate_candidate(item, source):
     raw_date = item.get("published_at", "")
     if not isinstance(raw_date, str) or len(raw_date) > 64:
         raise ValueError("来源日期格式不正确")
-    published = collect.stamp(raw_date)
-    if raw_date and not published:
-        raise ValueError("来源日期无法解析")
-    if published and collect.parse_date(published) > collect.utcnow() + dt.timedelta(days=1):
-        raise ValueError("来源日期在未来")
+    # Unknown and invalid dates are transparently filtered by the same policy as
+    # official feeds after author, evidence and content validation has completed.
+    published = collect.published_date({"date": raw_date}, source)
     tags = item.get("tags", [])
     if not isinstance(tags, list) or len(tags) > 8:
         raise ValueError("关键词数量不正确")
@@ -293,14 +290,23 @@ def validate_result(raw, source):
     candidates = raw.get("candidates")
     if not isinstance(candidates, list):
         raise ValueError("候选列表格式不正确")
-    rejected = []
+    rejected, validated = [], []
     for candidate in candidates[:MAX_CANDIDATES]:
         try:
-            result["candidates"].append(validate_candidate(candidate, source))
+            validated.append(validate_candidate(candidate, source))
         except (ValueError, TypeError, KeyError) as exc:
             rejected.append(str(exc)[:160])
-    result["diagnostics"].update(received=len(candidates), validated=len(result["candidates"]), rejected=len(rejected), ignored_over_limit=max(0, len(candidates) - MAX_CANDIDATES), rejection_reasons=rejected)
-    if candidates and not result["candidates"]:
+    eligible, filtered_reasons, max_age_days = collect.recent_items(
+        [dict(item, date=item["published_at"], url=item["source_url"]) for item in validated], source)
+    # The adapter keys are only for the shared feed policy, not stored content.
+    result["candidates"] = [{key: value for key, value in item.items() if key not in ("date", "url")} for item in eligible]
+    result["diagnostics"].update(received=len(candidates), validated=len(validated), eligible=len(eligible),
+                                 rejected=len(rejected), ignored_over_limit=max(0, len(candidates) - MAX_CANDIDATES),
+                                 rejection_reasons=rejected, filtered=sum(filtered_reasons.values()),
+                                 filtered_reasons=filtered_reasons, max_age_days=max_age_days, unknown_date_policy="skip")
+    # A readable page containing only old/undated posts is a successful empty
+    # collection, not a browser or account-access failure.
+    if candidates and not validated:
         result["status"], result["error"] = "error", "候选均未通过账号、证据或内容检查"
     return result
 

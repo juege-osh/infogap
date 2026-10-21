@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
 """Official index parser fixtures: no network or production database."""
+import argparse
+import contextlib
+import datetime as dt
 import importlib.util
+import io
 import json
 from pathlib import Path
 import re
+import sqlite3
+import tempfile
 import unittest
+from unittest import mock
+from xml.sax.saxutils import escape
 from urllib.parse import urlsplit
 
 spec = importlib.util.spec_from_file_location("collect", str(Path(__file__).with_name("collect.py")))
@@ -93,6 +101,186 @@ class OfficialListTests(unittest.TestCase):
         item = self.parse('<li><a href="./202610/t20261020_123.htm" title="官方新型运载火箭发射成功"><div>标题重复<span class="article-date">2026-10-21</span></div><p>正文摘要含2026年11月1日的其他日期</p></a></li>', source)[0]
         self.assertEqual(item["title"], "官方新型运载火箭发射成功")
         self.assertEqual(item["date"], "2026-10-21")
+
+    def test_mca_table_row_uses_sibling_date_cell_without_leaking_between_rows(self):
+        config = json.loads((Path(__file__).resolve().parents[1] / "data" / "sources.json").read_text(encoding="utf-8"))
+        source = next(value for value in config if value["id"] == "cn-mca-announcements")
+        # Structure observed on the official index: the date is in a sibling td,
+        # outside the anchor. Separator rows must not transfer a previous date.
+        items = self.parse('''<ul class="alist_ul"><span id="comp_1284">
+        <table class="article"><tbody><tr>
+        <td class="ardot"><img src="../../template/26/1202.gif"></td>
+        <td class="arlisttd" style="width:89%"><a href="
+          ../../n152/n165/c1662004999980013632/content.html
+        " title="民政部、人力资源社会保障部、农业农村部联合印发《关于加强农村助老员队伍建设的通知》">通知标题</a></td>
+        <td class="timedefault">2026-10-13</td></tr>
+        <tr><td colspan="10" class="listline"></td></tr>
+        <tr><td class="arlisttd"><a href="../../n152/n165/c1662004999980014017/content.html"
+        title="民政部2026年第三季度政府网站和政务新媒体检查情况">检查情况</a></td>
+        <td class="timedefault">2026-10-08</td></tr>
+        <tr><td class="arlisttd"><a href="../../n152/n165/c1662004999980013252/content.html"
+        title="关于防范假冒民政部工作人员身份进行诈骗的风险提示">风险提示</a></td>
+        <td class="timedefault"></td></tr></tbody></table></span></ul>''', source)
+        self.assertEqual(len(items), 3)
+        self.assertEqual([item["date"] for item in items], ["2026-10-13", "2026-10-08", ""])
+        self.assertTrue(items[0]["url"].endswith("/c1662004999980013632/content.html"))
+
+
+class FreshPublicationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.path = self.root / "fixture.sqlite"
+        root = Path(__file__).resolve().parents[1]
+        sources = json.loads((root / "data" / "sources.json").read_text(encoding="utf-8"))
+        self.who = next(source for source in sources if source["id"] == "who-news")
+        self.assertEqual(self.who["date_from_url"], "dd-mm-yyyy")
+        self.source_file = self.root / "sources.json"
+        self.source_file.write_text(json.dumps([self.who]), encoding="utf-8")
+        schema = re.search(r"const schema = `(.*?)`", (root / "schema.go").read_text(encoding="utf-8"), re.S).group(1)
+        with contextlib.closing(sqlite3.connect(str(self.path))) as db:
+            db.executescript(schema)
+        self.current = dt.datetime(2026, 10, 21, 12, 0, 0)
+        self.clock = mock.patch.object(worker, "utcnow", return_value=self.current)
+        self.clock.start()
+
+    def tearDown(self):
+        self.clock.stop()
+        self.temp.cleanup()
+
+    def rss_item(self, day, title=None, pub_date="Wed, 21 Oct 2026 11:00:00 GMT", description="短摘要"):
+        # WHO's RSS pubDate can be a later update; the URL retains original date.
+        path = day.strftime("%d-%m-%Y") if day else "undated"
+        return {"title": title or "Official health publication " + path,
+                "url": "https://www.who.int/news/item/" + path + "-health-update",
+                "date": pub_date, "description": description}
+
+    def feed(self, items):
+        return ("<rss version='2.0'><channel><title>WHO news</title>" + "".join(
+            "<item><title>" + escape(item["title"]) + "</title><link>" + escape(item["url"]) +
+            "</link><pubDate>" + escape(item.get("date", "")) + "</pubDate><description>" +
+            escape(item.get("description", "")) + "</description></item>" for item in items) +
+            "</channel></rss>").encode("utf-8")
+
+    def execute(self, items=None, source=None, seed=None):
+        if source is not None:
+            self.source_file.write_text(json.dumps([source]), encoding="utf-8")
+        args = argparse.Namespace(db=str(self.path), sources=str(self.source_file), check=False,
+                                  import_seed=str(seed) if seed else None, publish_seed=bool(seed),
+                                  source=None, force=True, max_items=10)
+        output = io.StringIO()
+        with mock.patch.object(worker, "fetch", return_value=self.feed(items or [])) as fetch, mock.patch.object(worker, "robot_rules", return_value=0), contextlib.redirect_stdout(output):
+            code = worker.run(args)
+        return code, [json.loads(line) for line in output.getvalue().splitlines()], fetch
+
+    def rows(self, query):
+        with contextlib.closing(sqlite3.connect(str(self.path))) as db:
+            return db.execute(query).fetchall()
+
+    def test_who_original_url_date_overrides_recent_feed_modified_date(self):
+        item = self.rss_item(dt.datetime(2020, 4, 6))
+        parsed = worker.parse_items(self.feed([item]), self.who)[0]
+        self.assertEqual(worker.published_date(parsed, self.who), "2020-04-06T00:00:00Z")
+        self.assertEqual(worker.candidate(parsed, self.who)["published_at"], "2020-04-06T00:00:00Z")
+        eligible, reasons, age = worker.recent_items([parsed], self.who)
+        self.assertEqual(eligible, [])
+        self.assertEqual(reasons["old"], 1)
+        self.assertEqual(age, 180)
+
+    def test_who_full_feed_is_sorted_before_ten_item_limit(self):
+        old = [self.rss_item(dt.datetime(2020, 4, day)) for day in range(1, 11)]
+        recent = [self.rss_item(dt.datetime(2026, 10, day)) for day in range(1, 16)]
+        code, report, unused = self.execute(old + recent)
+        self.assertEqual(code, 0)
+        rows = self.rows("SELECT published_at,status FROM gaps ORDER BY id")
+        self.assertEqual([row[0] for row in rows], ["2026-10-%02dT00:00:00Z" % day for day in range(15, 5, -1)])
+        self.assertTrue(all(row[1] == "pending" for row in rows))
+        self.assertEqual(report[0]["received"], 25)
+        self.assertEqual(report[0]["filtered"], 10)
+        self.assertEqual(report[0]["filtered_reasons"]["old"], 10)
+        self.assertEqual(report[0]["limited"], 5)
+        self.assertEqual(report[0]["inserted"], 10)
+
+    def test_old_and_unknown_long_articles_never_enter_database_or_summary_queue(self):
+        long_text = "这份原始资料提供了研究条件和需要核验的具体内容。" * 130
+        items = [self.rss_item(dt.datetime(2020, 4, 6), description=long_text),
+                 self.rss_item(dt.datetime(2025, 10, 1), description=long_text),
+                 self.rss_item(None, description=long_text),
+                 self.rss_item(dt.datetime(2026, 10, 20), description=long_text)]
+        code, report, unused = self.execute(items)
+        self.assertEqual(code, 0)
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM gaps")[0][0], 1)
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM summary_jobs")[0][0], 1)
+        self.assertEqual(self.rows("SELECT published_at FROM gaps")[0][0], "2026-10-20T00:00:00Z")
+        self.assertEqual(report[0]["filtered_reasons"]["old"], 2)
+        self.assertEqual(report[0]["filtered_reasons"]["undated"], 1)
+        self.assertEqual(report[0]["unknown_date_policy"], "skip")
+
+    def test_unknown_dates_are_transparently_filtered_including_who_invalid_path_date(self):
+        invalid = self.rss_item(None)
+        invalid["url"] = "https://www.who.int/news/item/31-02-2026-invalid-calendar-date"
+        code, report, unused = self.execute([self.rss_item(None), invalid])
+        self.assertEqual(code, 0)
+        self.assertEqual(report[0]["filtered"], 2)
+        self.assertEqual(report[0]["filtered_reasons"]["undated"], 2)
+        self.assertEqual(report[0]["checked"], 0)
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM summary_jobs")[0][0], 0)
+
+    def test_atom_updated_is_not_used_as_publication(self):
+        atom = b"""<feed xmlns='http://www.w3.org/2005/Atom'><entry><title>Updated historical article</title>
+        <link href='https://www.nature.com/articles/old-paper'/><updated>2026-10-21T10:00:00Z</updated>
+        </entry><entry><title>Newly published article</title><link href='https://www.nature.com/articles/new-paper'/>
+        <published>2026-10-20T10:00:00Z</published><updated>2026-10-21T11:00:00Z</updated></entry></feed>"""
+        source = dict(self.who, date_from_url="", name="Nature")
+        rows = worker.parse_items(atom, source)
+        self.assertEqual(rows[0]["date"], "")
+        self.assertEqual(rows[1]["date"], "2026-10-20T10:00:00Z")
+        eligible, reasons, unused = worker.recent_items(rows, source)
+        self.assertEqual(len(eligible), 1)
+        self.assertEqual(reasons["undated"], 1)
+
+    def test_actual_published_dates_are_sorted_after_timezone_normalization(self):
+        source = dict(self.who, date_from_url="")
+        items = [{"date": "2026-10-21T10:00:00+08:00", "title": "later-looking local time"},
+                 {"date": "2026-10-21T03:00:00Z", "title": "actually newer"}]
+        rows, reasons, unused = worker.recent_items(items, source)
+        self.assertEqual([row["title"] for row in rows], ["actually newer", "later-looking local time"])
+        self.assertEqual(sum(reasons.values()), 0)
+
+    def test_age_boundary_and_configured_maximum_are_respected(self):
+        source = dict(self.who, date_from_url="")
+        boundary = self.current - dt.timedelta(days=180)
+        items = [{"date": boundary.strftime("%Y-%m-%dT%H:%M:%SZ")},
+                 {"date": (boundary - dt.timedelta(seconds=1)).strftime("%Y-%m-%dT%H:%M:%SZ")}]
+        rows, reasons, age = worker.recent_items(items, source)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(reasons["old"], 1)
+        self.assertEqual(age, 180)
+        rows, reasons, age = worker.recent_items(items, dict(source, max_age_days=365))
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(age, 365)
+        for invalid in (0, -1, True, "180"):
+            with self.assertRaises(ValueError):
+                worker.recent_items(items, dict(source, max_age_days=invalid))
+
+    def test_future_dates_are_filtered_before_database_and_model(self):
+        item = self.rss_item(dt.datetime(2026, 11, 1), description="长原文" * 900)
+        code, report, unused = self.execute([item])
+        self.assertEqual(code, 0)
+        self.assertEqual(report[0]["filtered_reasons"]["future"], 1)
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM gaps")[0][0], 0)
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM summary_jobs")[0][0], 0)
+
+    def test_curated_historical_seed_import_bypasses_automatic_age_filter(self):
+        item = worker.candidate(self.rss_item(dt.datetime(2020, 4, 6)), self.who)
+        item["review_note"] = "历史资料，原始发布日期与出处已人工核验。"
+        seed = self.root / "seed.json"
+        seed.write_text(json.dumps([item]), encoding="utf-8")
+        code, report, fetch = self.execute(seed=seed)
+        self.assertEqual(code, 0)
+        fetch.assert_not_called()
+        self.assertEqual(self.rows("SELECT published_at,released_at,status FROM gaps"), [("2020-04-06T00:00:00Z", "2020-04-06T00:00:00Z", "published")])
+        self.assertEqual(self.rows("SELECT COUNT(*) FROM summary_jobs")[0][0], 0)
 
 
 if __name__ == "__main__":

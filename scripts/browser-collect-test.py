@@ -3,6 +3,7 @@
 import argparse
 import contextlib
 import copy
+import datetime as dt
 import importlib.util
 import io
 import json
@@ -22,10 +23,11 @@ worker = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(worker)
 
 ACCOUNT = {"id": "x-nature", "handle": "nature", "name": "Nature", "profile_url": "https://x.com/nature", "category": "前沿科技", "primary_domains": ["nature.com", "doi.org"], "enabled": True, "collection_status": "not_tested"}
+FIXTURE_NOW = dt.datetime(2026, 10, 21, 12, 0, 0)
 
 
 def candidate(linux=False, identifier="123456789"):
-    return {"title": "研究团队报告了一项需要核验的新方法", "summary": "公开帖子介绍实验方法与适用范围，研究结论需要回到原始证据核验。", "body": "## 研究线索\n\n" + "这项工作描述了一种实验方法，需要核对样本范围、实验条件和结果解释。" * 4, "source_name": "不能信任的来源名称", "source_url": ("https://linux.do/t/topic/" if linux else "https://x.com/nature/status/") + identifier, "published_at": "2026-01-01T00:00:00Z", "source_visibility": "public", "evidence": "official", "level": "exclusive", "status": "published", "author_handle": "nature", "tags": ["研究"], "review_note": "不应信任此审核说明", "primary_evidence_urls": ["https://www.nature.com/articles/example-research"]}
+    return {"title": "研究团队报告了一项需要核验的新方法", "summary": "公开帖子介绍实验方法与适用范围，研究结论需要回到原始证据核验。", "body": "## 研究线索\n\n" + "这项工作描述了一种实验方法，需要核对样本范围、实验条件和结果解释。" * 4, "source_name": "不能信任的来源名称", "source_url": ("https://linux.do/t/topic/" if linux else "https://x.com/nature/status/") + identifier, "published_at": "2026-10-20T00:00:00Z", "source_visibility": "public", "evidence": "official", "level": "exclusive", "status": "published", "author_handle": "nature", "tags": ["研究"], "review_note": "不应信任此审核说明", "primary_evidence_urls": ["https://www.nature.com/articles/example-research"]}
 
 
 def result(source, items=None, status="ok"):
@@ -34,6 +36,9 @@ def result(source, items=None, status="ok"):
 
 class BrowserCollectorTests(unittest.TestCase):
     def setUp(self):
+        clock = mock.patch.object(worker.collect, "utcnow", return_value=FIXTURE_NOW)
+        clock.start()
+        self.addCleanup(clock.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.path = self.root / "fixture.sqlite"
@@ -104,6 +109,80 @@ class BrowserCollectorTests(unittest.TestCase):
         report = self.process(result(self.x, []))
         self.assertEqual(report["status"], "ok")
         self.assertEqual(self.count(), 0)
+
+    def test_both_browser_sources_use_shared_freshness_and_sort_after_validation(self):
+        dates = ["2026-10-19T12:00:00Z", "2026-01-01T00:00:00Z", "",
+                 "2026-11-01T00:00:00Z", "2026-10-20T12:00:00Z"]
+        for source in (self.linux, self.x):
+            items = []
+            for i, date in enumerate(dates):
+                item = candidate(source == self.linux, str(123456789 + i))
+                item["published_at"] = date
+                items.append(item)
+            report = worker.validate_result(result(source, items), source)
+            self.assertEqual(report["status"], "ok")
+            self.assertEqual([item["published_at"] for item in report["candidates"]], [dates[4], dates[0]])
+            self.assertEqual(report["diagnostics"]["filtered_reasons"], {"old": 1, "undated": 1, "future": 1, "editorial": 0})
+            self.assertEqual(report["diagnostics"]["validated"], 5)
+            self.assertEqual(report["diagnostics"]["eligible"], 2)
+            self.assertEqual(report["diagnostics"]["max_age_days"], 180)
+            self.assertNotIn("date", report["candidates"][0])
+            self.assertNotIn("url", report["candidates"][0])
+
+    def test_only_stale_or_unknown_candidates_are_success_without_writes_or_model_queue(self):
+        for source in (self.linux, self.x):
+            items = []
+            for i, date in enumerate(("2026-01-01T00:00:00Z", "", "2026-11-01T00:00:00Z", "2026-02-30")):
+                item = candidate(source == self.linux, str(123456789 + i))
+                item["published_at"] = date
+                if source == self.linux:
+                    raw = "这是一份仅供日期过滤测试的主帖原文。" * 150
+                    item.update(raw_text=raw, raw_text_length=len(raw), text_truncated=False, raw_text_scope="main_post_visible_dom")
+                items.append(item)
+            with mock.patch.object(worker.collect, "queue_summary") as queue:
+                report = self.process(result(source, items), source)
+                queue.assert_not_called()
+            self.assertEqual(report["status"], "ok")
+            self.assertEqual(report["candidates"], [])
+            self.assertEqual(report["diagnostics"]["filtered_reasons"], {"old": 1, "undated": 2, "future": 1, "editorial": 0})
+            self.assertEqual(report["diagnostics"]["unknown_date_policy"], "skip")
+            self.assertEqual(self.count(), 0)
+            with self.database() as db:
+                state = db.execute("SELECT last_success,last_error,last_count FROM sources WHERE id=?", (source["id"],)).fetchone()
+            self.assertEqual(state, (worker.collect.now(), "", 0))
+
+    def test_browser_date_window_boundary_and_override(self):
+        for days in (180, 30):
+            source = dict(self.x, max_age_days=days)
+            boundary = FIXTURE_NOW - dt.timedelta(days=days)
+            items = []
+            for i, date in enumerate((boundary, boundary - dt.timedelta(seconds=1))):
+                item = candidate(identifier=str(123456789 + i))
+                item["published_at"] = date.strftime("%Y-%m-%dT%H:%M:%SZ")
+                items.append(item)
+            report = worker.validate_result(result(source, items), source)
+            self.assertEqual(len(report["candidates"]), 1)
+            self.assertEqual(report["diagnostics"]["filtered_reasons"]["old"], 1)
+            self.assertEqual(report["diagnostics"]["max_age_days"], days)
+
+    def test_three_verified_linux_dates_remain_eligible_and_internal(self):
+        # Dates observed in the earlier real browser run; clock is fixed so this
+        # regression fixture does not become stale months after deployment.
+        dates = ["2026-10-21T08:08:22.056Z", "2026-10-21T06:47:46.454Z", "2026-10-21T03:00:18.528Z"]
+        items = []
+        for i, date in enumerate(dates):
+            item = candidate(True, str(123456789 + i))
+            item["published_at"] = date
+            item["body"] += "\n独立日期样本%d" % i
+            items.append(item)
+        report = self.process(result(self.linux, items), self.linux)
+        self.assertEqual(report["status"], "ok")
+        self.assertEqual(report["diagnostics"]["filtered"], 0)
+        self.assertEqual(self.count(), 3)
+        with self.database() as db:
+            rows = db.execute("SELECT source_visibility,status,evidence,published_at FROM gaps ORDER BY id").fetchall()
+        self.assertTrue(all(row[:3] == ("internal", "pending", "unverified") for row in rows))
+        self.assertEqual([row[3] for row in rows], [worker.collect.stamp(date) for date in dates])
 
     def test_forged_author_or_status_url_is_rejected(self):
         for field, value in (("author_handle", "impostor"), ("author_handle", None), ("source_url", "https://x.com/impostor/status/123"), ("source_url", "https://x.com.evil.org/nature/status/123"), ("source_url", "https://x.com/nature/status/123/photo/1")):

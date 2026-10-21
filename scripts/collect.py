@@ -263,7 +263,7 @@ class OfficialList(HTMLParser):
         attrs = dict(attrs)
         if tag in ("script", "style"):
             self.skip += 1
-        if tag == "li":
+        if tag in ("li", "tr"):
             self.row = {"text": [], "items": []}
         if tag == "a" and not self.skip:
             url = urllib.parse.urljoin(self.source["url"], attrs.get("href", "").strip())
@@ -302,7 +302,7 @@ class OfficialList(HTMLParser):
                 if self.row is not None:
                     self.row["items"].append(item)
             self.anchor = None
-        if tag == "li" and self.row is not None:
+        if tag in ("li", "tr") and self.row is not None:
             row_text = " ".join(self.row["text"])
             matches = re.findall(r"(?<!\d)20\d{2}[-年/.]\d{1,2}[-月/.]\d{1,2}(?:日|\b)", row_text)
             dates = set(list_date(value) for value in matches)
@@ -340,7 +340,54 @@ def parse_items(raw, source):
              "description": child_text(n, ["description", "summary", "encoded", "content"]),
              "categories": [text_only(c.attrib.get("term", "") or "".join(c.itertext()))
                             for c in n if c.tag.split("}")[-1] == "category"],
-             "date": child_text(n, ["published", "pubDate", "date", "updated"])} for n in records]
+             # A modification timestamp is not proof of initial publication.
+             "date": child_text(n, ["published", "pubDate", "date"])} for n in records]
+
+
+def published_date(item, source):
+    """One publication-date policy for sorting, freshness and stored metadata."""
+    try:
+        if source.get("date_from_url") == "dd-mm-yyyy":
+            # WHO may republish an old item at the front with a fresh RSS pubDate.
+            # Its dated article path takes precedence; missing paths stay unknown.
+            path = urllib.parse.urlsplit(item.get("url", "")).path
+            match = re.search(r"/(\d{2})-(\d{2})-(20\d{2})-", path)
+            return stamp("%s-%s-%s" % (match.group(3), match.group(2), match.group(1))) if match else ""
+        return stamp(item.get("date"))
+    except (ValueError, TypeError, OverflowError):
+        return ""
+
+
+def recent_items(items, source):
+    """Exclude old/undated automatic candidates before limiting or model queuing.
+
+    Historical seed imports intentionally do not pass through this function.
+    """
+    max_age_days = source.get("max_age_days", 180)
+    if type(max_age_days) is not int or not 1 <= max_age_days <= 36500:
+        raise ValueError("max_age_days必须是1至36500之间的整数")
+    current = utcnow()
+    cutoff = current - dt.timedelta(days=max_age_days)
+    reasons = {"old": 0, "undated": 0, "future": 0, "editorial": 0}
+    eligible = []
+    for item in items:
+        if not source_filter(item, source):
+            reasons["editorial"] += 1
+            continue
+        published = published_date(item, source)
+        date = parse_date(published) if published else None
+        if date is None:
+            reasons["undated"] += 1
+        elif date > current + dt.timedelta(days=1):
+            reasons["future"] += 1
+        elif date < cutoff:
+            reasons["old"] += 1
+        else:
+            normalized = dict(item)
+            normalized["date"] = published
+            eligible.append(normalized)
+    eligible.sort(key=lambda item: item["date"], reverse=True)
+    return eligible, reasons, max_age_days
 
 
 def community_source(source):
@@ -375,10 +422,7 @@ def candidate(item, source):
     # Feed text is an excerpt, never claimed to be an original Chinese analysis.
     internal = community_source(source)
     excerpt = text_only(item.get("description", ""))[:200 if internal else 500]
-    date = stamp(item.get("date"))
-    if source.get("date_from_url") == "dd-mm-yyyy":
-        match = re.search(r"/(\d{2})-(\d{2})-(20\d{2})-", urllib.parse.urlsplit(url).path)
-        date = stamp("%s-%s-%s" % (match.group(3), match.group(2), match.group(1))) if match else ""
+    date = published_date(item, source)
     if date and parse_date(date) > utcnow() + dt.timedelta(days=1):
         raise ValueError("来源日期在未来，需人工核对")
     if internal:
@@ -493,6 +537,7 @@ def run(args):
                     raise ValueError("种子内容必须有核验说明和原始日期")
                 count += insert_gap(db, item, "published" if args.publish_seed else "pending", historical_seed=True)
         print(json.dumps({"seed_count": len(seeds), "inserted": count, "status": "published" if args.publish_seed else "pending"}, ensure_ascii=False))
+        db.close()
         return 0
     results, failures = [], 0
     for source in sources:
@@ -514,13 +559,9 @@ def run(args):
             # Official GitHub API access follows API rate limits, not HTML robots.
             delay = robot_rules(source["url"]) if source["kind"] != "github" else 2
             items = parse_items(fetch(source["url"], delay), source)
-            inserted, invalid, valid, filtered = 0, 0, 0, 0
-            for item in items:
-                if not source_filter(item, source):
-                    filtered += 1
-                    continue
-                if valid + invalid >= args.max_items:
-                    break
+            eligible, filtered_reasons, max_age_days = recent_items(items, source)
+            inserted, invalid, valid = 0, 0, 0
+            for item in eligible[:args.max_items]:
                 try:
                     gap = candidate(item, source)
                     valid += 1
@@ -535,7 +576,9 @@ def run(args):
             if db:
                 db.execute("UPDATE sources SET last_success=?,last_error='',last_count=? WHERE id=?", (now(), inserted, source["id"]))
                 db.commit()
-            result.update(ok=True, received=len(items), checked=valid, inserted=inserted, invalid=invalid, filtered=filtered)
+            result.update(ok=True, received=len(items), checked=valid, inserted=inserted, invalid=invalid,
+                          filtered=sum(filtered_reasons.values()), filtered_reasons=filtered_reasons,
+                          max_age_days=max_age_days, unknown_date_policy="skip", limited=max(0, len(eligible)-args.max_items))
         except Exception as exc:
             failures += 1
             # Do not include headers, credentials or response bodies in logs.
