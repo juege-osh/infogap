@@ -21,4 +21,3 @@ MemoryMax=512M
 TimeoutStartSec=10min
 TimeoutStopSec=15s
 KillMode=control-group
-
