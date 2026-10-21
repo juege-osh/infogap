@@ -27,7 +27,7 @@ import (
 )
 
 const founderEmail = "1402272093@qq.com"
-const version = "1.0.3"
+const version = "1.0.4"
 
 var buildCommit = "dev"
 
@@ -235,7 +235,7 @@ func (s *server) stats(u *User) map[string]int {
 func (s *server) bootstrap(w http.ResponseWriter, r *http.Request) {
 	_, err := smtpSettings()
 	u := s.current(r)
-	send(w, 200, map[string]any{"user": u, "stats": s.stats(u), "categories": categories, "travel_topics": travelTopics, "travel_regions": travelRegions, "tiers": tiers, "rules": map[string]any{"welcome": 10, "contribution": 100, "unlock_costs": unlockCosts, "daily_reset_timezone": "Asia/Shanghai"}, "mail_ready": err == nil})
+	send(w, 200, map[string]any{"user": u, "stats": s.stats(u), "categories": categories, "topic_codes": topicCodes, "travel_topics": travelTopics, "travel_regions": travelRegions, "tiers": tiers, "rules": map[string]any{"welcome": 10, "contribution": 100, "unlock_costs": unlockCosts, "daily_reset_timezone": "Asia/Shanghai"}, "mail_ready": err == nil})
 }
 func (s *server) routes() http.Handler {
 	m := http.NewServeMux()

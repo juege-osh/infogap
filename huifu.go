@@ -145,6 +145,9 @@ func (c *huifuPayClient) validateConfiguration() error {
 }
 
 func (c *huifuPayClient) CreatePayment(paymentNo, subject string, amountCents int64, channel string, expireAt time.Time) (huifuPaymentResult, error) {
+	if channel != "alipay" {
+		return huifuPaymentResult{}, errors.New("当前仅支持支付宝支付")
+	}
 	if err := c.validateConfiguration(); err != nil {
 		return huifuPaymentResult{}, err
 	}
@@ -172,22 +175,25 @@ func (c *huifuPayClient) CreatePayment(paymentNo, subject string, amountCents in
 	if stringValue(response["huifu_id"]) != c.huifuID || stringValue(response["req_seq_id"]) != paymentNo {
 		return huifuPaymentResult{}, errors.New("汇付下单返回与本地订单不一致")
 	}
-	jump := firstValue(response, "qr_code", "jump_url", "pay_info")
-	if jump == "" {
-		return huifuPaymentResult{}, errors.New("汇付下单未返回二维码")
+	if returnedType := stringValue(response["trade_type"]); returnedType != "" && returnedType != tradeType {
+		return huifuPaymentResult{}, errors.New("汇付下单返回的支付渠道不一致")
 	}
-	return huifuPaymentResult{MerchantID: c.huifuID, PaymentNo: paymentNo, PlatformTradeNo: firstValue(response, "hf_seq_id", "pre_order_id"), JumpURL: jump, ResponsePayload: raw}, nil
+	jump := firstValue(response, "qr_code", "jump_url", "pay_info")
+	if !billingPayPayload(jump) {
+		return huifuPaymentResult{}, errors.New("汇付下单未返回有效的支付宝支付入口")
+	}
+	return huifuPaymentResult{MerchantID: c.huifuID, PaymentNo: paymentNo, PlatformTradeNo: firstValue(response, "hf_seq_id", "pre_order_id"), TradeType: tradeType, JumpURL: jump, ResponsePayload: raw}, nil
 }
 
 func isHuifuPreorderAccepted(code string) bool {
 	return code == huifuSuccessCode || code == huifuPendingCode
 }
 
-// 汇付 PC 聚合正扫 uses the native trade types. The older osh-backend
-// integration and the PC payment flow both use these values.
+// Checkout only creates Alipay native orders. Query and notification parsing
+// remain channel-independent so existing historical orders can be reconciled.
 func huifuPCTradeType(channel string) string {
-	if strings.EqualFold(strings.TrimSpace(channel), "wechat") {
-		return "T_NATIVE"
+	if channel != "alipay" {
+		return ""
 	}
 	return "A_NATIVE"
 }

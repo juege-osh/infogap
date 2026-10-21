@@ -11,11 +11,12 @@ import (
 
 func TestGapCodeFormatAndRecognition(t *testing.T) {
 	for _, tc := range []struct {
-		id    int64
-		level string
-		code  string
-	}{{1, "ordinary", "PT01"}, {2, "featured", "JX02"}, {3, "rare", "XY03"}, {4, "exclusive", "DJ04"}, {100, "ordinary", "PT100"}, {1234, "exclusive", "DJ1234"}} {
-		if got := gapCode(tc.id, tc.level); got != tc.code {
+		id       int64
+		level    string
+		category string
+		code     string
+	}{{1, "ordinary", "物理", "PT-WL-01"}, {116, "featured", "人工智能", "JX-AI-116"}, {8, "rare", "物理", "XY-WL-08"}, {4, "exclusive", "化学", "DJ-HX-04"}, {205, "ordinary", "出行旅行", "PT-LX-205"}, {1234, "exclusive", "商业创业", "DJ-CY-1234"}} {
+		if got := gapCode(tc.id, tc.level, tc.category); got != tc.code {
 			t.Fatalf("code=%s want=%s", got, tc.code)
 		}
 		for _, input := range []string{tc.code, strings.ToLower(tc.code), " " + tc.code + " "} {
@@ -24,9 +25,48 @@ func TestGapCodeFormatAndRecognition(t *testing.T) {
 			}
 		}
 	}
-	for _, invalid := range []string{"", "01", "100", "PT", "PT1", "PT00", "PT-1", "PT+1", "PT０１", "PT01suffix", "XY 03", "AB01", "PT99999999999999999999", "PT01' OR 1=1"} {
+	for _, legacy := range []struct {
+		code string
+		id   int64
+	}{{"PT01", 1}, {"jx116", 116}, {"XY08", 8}, {" dj205 ", 205}} {
+		if id, ok := gapCodeID(legacy.code); !ok || id != legacy.id {
+			t.Fatalf("legacy code stopped working: %q", legacy.code)
+		}
+	}
+	for _, invalid := range []string{"", "01", "100", "PT", "PT1", "PT00", "PT-1", "PT-01", "PT+1", "PT０１", "PT01suffix", "XY 03", "AB01", "PT99999999999999999999", "PT01' OR 1=1", "PT-XX-01", "AB-AI-01", "PT-AI-1", "PT-AI-00", "PT-AI--01", "PT-AI-+01", "PT-AI-０１", "PT-AI-01-more", "PT-AI-99999999999999999999"} {
 		if _, ok := gapCodeID(invalid); ok {
 			t.Fatalf("accepted non-code %q", invalid)
+		}
+	}
+}
+
+func TestGapTopicCodesCoverAllCategoriesUniquely(t *testing.T) {
+	s := testServer(t)
+	w := request(s, "GET", "/api/bootstrap", nil, "")
+	mustStatus(t, w, 200)
+	var boot struct {
+		Categories []string
+		TopicCodes map[string]string `json:"topic_codes"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &boot); err != nil {
+		t.Fatal(err)
+	}
+	if len(boot.Categories) != 28 || len(boot.TopicCodes) != 28 {
+		t.Fatal("topic code catalog is incomplete")
+	}
+	seen := map[string]bool{}
+	for _, category := range boot.Categories {
+		code := boot.TopicCodes[category]
+		if len(code) != 2 || code[0] < 'A' || code[0] > 'Z' || code[1] < 'A' || code[1] > 'Z' || seen[code] {
+			t.Fatalf("missing, invalid or duplicate topic code for %s: %s", category, code)
+		}
+		seen[code] = true
+		formatted := gapCode(9, "ordinary", category)
+		if formatted != "PT-"+code+"-09" {
+			t.Fatal("bootstrap and formatter disagree", category)
+		}
+		if id, ok := gapCodeID(formatted); !ok || id != 9 {
+			t.Fatal("known topic code is not searchable", formatted)
 		}
 	}
 }
@@ -41,7 +81,7 @@ func TestGapCodesAreGlobalAndSharedAcrossResponses(t *testing.T) {
 		if id != int64(i+1) {
 			t.Fatal("levels did not share a single sequence")
 		}
-		want[id] = []string{"PT01", "JX02", "XY03", "DJ04"}[i]
+		want[id] = []string{"PT-WL-01", "JX-WL-02", "XY-WL-03", "DJ-WL-04"}[i]
 	}
 	// Exercise the actual API at three digits, not just the formatter.
 	if _, err := s.db.Exec("UPDATE sqlite_sequence SET seq=99 WHERE name='gaps'"); err != nil {
@@ -59,7 +99,7 @@ func TestGapCodesAreGlobalAndSharedAcrossResponses(t *testing.T) {
 		Code   string
 		Status string
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil || created.ID != 100 || created.Code != "PT100" || created.Status != "pending" {
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil || created.ID != 100 || created.Code != "PT-WL-100" || created.Status != "pending" {
 		t.Fatal("submission code mismatch", w.Body.String())
 	}
 	want[created.ID] = created.Code
@@ -140,11 +180,13 @@ func TestGapCodeSearchPreservesAuthorizationAndFilters(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, cookie := range []string{"", reader} {
-		items := codeSearch(t, s, "q=pt01", cookie)
-		if len(items) != 1 || items[0].ID != id || items[0].Code != "PT01" || items[0].Body != "" || items[0].Unlocked {
-			t.Fatal("code search was not exact or exposed locked text", items)
+		for _, query := range []string{"q=pt01", "q=pt-wl-01", "q=PT-WL-01"} {
+			items := codeSearch(t, s, query, cookie)
+			if len(items) != 1 || items[0].ID != id || items[0].Code != "PT-WL-01" || items[0].Body != "" || items[0].Unlocked {
+				t.Fatal("code search was not exact or exposed locked text", items)
+			}
 		}
-		items = codeSearch(t, s, "q=01", cookie)
+		items := codeSearch(t, s, "q=01", cookie)
 		if len(items) != 1 || items[0].ID != other {
 			t.Fatal("numeric text query was incorrectly treated as an ID", items)
 		}
@@ -158,7 +200,7 @@ func TestGapCodeSearchPreservesAuthorizationAndFilters(t *testing.T) {
 	if _, err := s.db.Exec("UPDATE gaps SET released_at=? WHERE id=?", stamp(s.now().Add(-72*time.Hour+time.Second)), hidden); err != nil {
 		t.Fatal(err)
 	}
-	hiddenQuery := "q=" + gapCode(hidden, "ordinary")
+	hiddenQuery := "q=" + gapCode(hidden, "ordinary", "物理")
 	for _, cookie := range []string{"", reader} {
 		if items := codeSearch(t, s, hiddenQuery, cookie); len(items) != 0 {
 			t.Fatal("exact code exposed delayed content")
@@ -168,7 +210,7 @@ func TestGapCodeSearchPreservesAuthorizationAndFilters(t *testing.T) {
 		t.Fatal("administrator lost immediate full access")
 	}
 	pending := gap(t, s, "rare", "pending", authorID)
-	pendingQuery := "q=" + gapCode(pending, "rare")
+	pendingQuery := "q=" + gapCode(pending, "rare", "物理")
 	if items := codeSearch(t, s, pendingQuery, reader); len(items) != 0 {
 		t.Fatal("code exposed another member's pending submission")
 	}
@@ -199,9 +241,27 @@ func TestGapCodeSurvivesReviewLevelChange(t *testing.T) {
 		}
 		mustStatus(t, request(s, "POST", fmt.Sprintf("/api/admin/review/%d", id), map[string]string{"action": "approve", "level": level, "note": "已核验公开材料和具体结论适用范围"}, admin), 200)
 		items := codeSearch(t, s, "q=PT01", admin)
-		if len(items) != 1 || items[0].ID != id || items[0].Code != gapCode(id, level) || items[0].UnlockCost != unlockCosts[level] {
+		if len(items) != 1 || items[0].ID != id || items[0].Code != gapCode(id, level, "物理") || items[0].UnlockCost != unlockCosts[level] {
 			t.Fatal("old code changed identity or ignored current classification", items)
 		}
+	}
+	// Reclassification of the single topic changes the middle segment, but all
+	// previously shared valid codes still locate the same authorized content.
+	edit := map[string]any{
+		"title": "调整为旅行主题后的实用信息整理", "summary": "这条公开信息说明旅行适用条件、办理步骤和实际限制，读者可据此核对。",
+		"body":     strings.Repeat("正文保留原始公开材料的条件和限制，不添加缺乏依据的新事实。", 4),
+		"category": "出行旅行", "evidence": "official", "tags": []string{"国家:日本", "地区:东亚", "旅行:交通住宿"},
+	}
+	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/admin/gaps/%d", id), edit, admin), 200)
+	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/admin/review/%d", id), map[string]string{"action": "approve", "level": "ordinary"}, admin), 200)
+	for _, code := range []string{"PT01", "JX-WL-01", "XY-WL-01", "DJ-WL-01", "PT-LX-01", "pt-lx-01"} {
+		items := codeSearch(t, s, "q="+code, admin)
+		if len(items) != 1 || items[0].ID != id || items[0].Code != "PT-LX-01" || items[0].Category != "出行旅行" || items[0].UnlockCost != 1 {
+			t.Fatal("topic change broke a stable reference", code, items)
+		}
+	}
+	if items := codeSearch(t, s, "q=DJ-WL-01&category="+url.QueryEscape("物理"), admin); len(items) != 0 {
+		t.Fatal("old topic in a code bypassed the current explicit category filter")
 	}
 }
 

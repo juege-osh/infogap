@@ -162,7 +162,7 @@ func (s *server) billingCatalog(w http.ResponseWriter, r *http.Request) {
 	if !s.billingEnabled() {
 		reason = s.billingReason()
 	}
-	send(w, 200, map[string]any{"enabled": s.billingEnabled(), "disabled_reason": reason, "plans": billingPlans, "channels": []string{"alipay", "wechat"}, "auto_renew": false})
+	send(w, 200, map[string]any{"enabled": s.billingEnabled(), "disabled_reason": reason, "plans": billingPlans, "channels": []string{"alipay"}, "auto_renew": false})
 }
 
 const billingOrderCols = "id,user_id,plan,name,amount_cents,days,credits,channel,status,pay_payload,platform_trade_no,expires_at,paid_at,created_at,membership_until,last_checked_at"
@@ -177,7 +177,9 @@ func billingScan(row scanner) (*billingOrder, error) {
 	if o.Credits > 0 {
 		o.Type, o.Days = "credits", 0
 	}
-	if o.Status != "pending" {
+	// Keep historical orders readable/reconcilable, but do not offer an old
+	// WeChat checkout entry now that this site accepts only new Alipay payments.
+	if o.Status != "pending" || o.Channel != "alipay" || !billingPayPayload(o.QRPayload) {
 		o.QRPayload = ""
 	}
 	if o.QRPayload != "" {
@@ -201,7 +203,21 @@ func billingPayPayload(raw string) bool {
 	if e != nil || u.User != nil {
 		return false
 	}
-	return billingWebURL(raw) || ((u.Scheme == "weixin" || u.Scheme == "alipays") && u.Host != "")
+	if u.Scheme == "alipays" {
+		return u.Host != ""
+	}
+	// Signed Huifu replies may use an HTTPS intermediary. Do not invent a host
+	// allowlist, but never present an explicit WeChat payment URL as Alipay.
+	if u.Scheme != "https" || !billingWebURL(raw) {
+		return false
+	}
+	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	for _, wechatDomain := range []string{"weixin.qq.com", "wx.qq.com", "tenpay.com"} {
+		if host == wechatDomain || strings.HasSuffix(host, "."+wechatDomain) {
+			return false
+		}
+	}
+	return true
 }
 func (s *server) billingLoad(ctx context.Context, id string, userID int64) (*billingOrder, error) {
 	return billingScan(s.db.QueryRowContext(ctx, "SELECT "+billingOrderCols+" FROM billing_orders WHERE id=? AND user_id=?", id, userID))
@@ -214,15 +230,19 @@ func (s *server) billingCreate(w http.ResponseWriter, r *http.Request) {
 	if u == nil {
 		return
 	}
-	if !s.billingEnabled() {
-		fail(w, 503, s.billingReason())
-		return
-	}
 	var req struct {
 		Plan    string `json:"plan"`
 		Channel string `json:"channel"`
 	}
 	if !decode(w, r, &req) {
+		return
+	}
+	if req.Channel != "alipay" {
+		fail(w, 400, "当前仅支持支付宝支付")
+		return
+	}
+	if !s.billingEnabled() {
+		fail(w, 503, s.billingReason())
 		return
 	}
 	var plan *billingPlan
@@ -232,8 +252,8 @@ func (s *server) billingCreate(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	if plan == nil || (req.Channel != "alipay" && req.Channel != "wechat") {
-		fail(w, 400, "请选择有效套餐和支付方式")
+	if plan == nil {
+		fail(w, 400, "请选择有效套餐")
 		return
 	}
 	// Serialize only checkout creation so repeated clicks reuse the same pending invoice.
@@ -278,7 +298,7 @@ func (s *server) billingCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	result, providerErr := s.billing.provider.CreatePayment(id, "InfoGap "+plan.Name, plan.AmountCents, req.Channel, expires)
 	message := ""
-	if providerErr != nil || result.MerchantID != s.billing.merchantID || result.PaymentNo != id || !billingPayPayload(result.JumpURL) {
+	if providerErr != nil || result.MerchantID != s.billing.merchantID || result.PaymentNo != id || (result.TradeType != "" && result.TradeType != "A_NATIVE") || !billingPayPayload(result.JumpURL) {
 		// Keep uncertain upstream results pending: a callback/status query can still reconcile payment.
 		message = "暂未取得支付入口，订单已保留；请稍后查询状态，勿重复付款"
 	} else {
@@ -447,6 +467,11 @@ func (s *server) billingApply(result huifuPaymentResult, eventKey string) error 
 	}
 	if o.AmountCents != result.AmountCents {
 		return errors.New("payment amount mismatch")
+	}
+	// Native channel declarations, when present in a verified reply, must match
+	// the stored invoice. Older replies may omit this optional field entirely.
+	if (result.TradeType == "A_NATIVE" && o.Channel != "alipay") || (result.TradeType == "T_NATIVE" && o.Channel != "wechat") {
+		return errors.New("payment channel mismatch")
 	}
 	if o.Status == "success" {
 		if result.TransactionStatus == "S" && result.PlatformTradeNo != o.PlatformTradeNo {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -21,6 +22,8 @@ func TestBrowserPreview(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.db.Close()
+	// Browser checkout uses an in-process provider and never reaches a gateway.
+	s.billing = &billingService{provider: &fakeBillingProvider{queryErr: errors.New("preview has no payment result")}, merchantID: "test-merchant"}
 	now := stamp(time.Now())
 	for _, u := range []struct {
 		email, name, role string

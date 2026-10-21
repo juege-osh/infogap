@@ -90,18 +90,77 @@ func TestHuifuPreorderUsesExactAmountCallbackAndSignedReply(t *testing.T) {
 			Sign string         `json:"sign"`
 		}
 		json.NewDecoder(r.Body).Decode(&req)
-		if !verifyHuifuData(req.Data, req.Sign, c.publicKey) || req.Data["trans_amt"] != "9.90" || req.Data["notify_url"] != c.notifyURL || req.Data["req_seq_id"] != id || req.Data["trade_type"] != "T_NATIVE" {
+		if !verifyHuifuData(req.Data, req.Sign, c.publicKey) || req.Data["trans_amt"] != "9.90" || req.Data["notify_url"] != c.notifyURL || req.Data["req_seq_id"] != id || req.Data["trade_type"] != "A_NATIVE" {
 			t.Error("preorder payload mismatch")
 		}
-		data := map[string]any{"resp_code": "00000100", "huifu_id": c.huifuID, "req_seq_id": id, "qr_code": "weixin://wxpay/bizpayurl?pr=test"}
+		data := map[string]any{"resp_code": "00000100", "huifu_id": c.huifuID, "req_seq_id": id, "trade_type": "A_NATIVE", "qr_code": "https://qr.alipay.com/test"}
 		sig, _ := signHuifuData(data, c.privateKey)
 		json.NewEncoder(w).Encode(map[string]any{"data": data, "sign": sig})
 	}))
 	defer ts.Close()
 	c.baseURL, c.httpClient = ts.URL, ts.Client()
-	result, e := c.CreatePayment(id, "InfoGap 30天订阅会员", 990, "wechat", time.Now().Add(time.Minute))
-	if e != nil || result.PaymentNo != id || result.MerchantID != c.huifuID {
+	result, e := c.CreatePayment(id, "InfoGap 30天订阅会员", 990, "alipay", time.Now().Add(time.Minute))
+	if e != nil || result.PaymentNo != id || result.MerchantID != c.huifuID || result.TradeType != "A_NATIVE" {
 		t.Fatal(result, e)
+	}
+}
+
+func TestHuifuCreateRejectsNonAlipayBeforeProviderCall(t *testing.T) {
+	c := testHuifuClient(t)
+	calls := 0
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(500)
+	}))
+	defer ts.Close()
+	c.baseURL, c.httpClient = ts.URL, ts.Client()
+	for _, channel := range []string{"wechat", "weixin", "WECHAT", "ALIPAY", " alipay ", "", "bank"} {
+		_, err := c.CreatePayment("P20261021IG12345678901234567890", "测试", 990, channel, time.Now().Add(time.Minute))
+		if err == nil || !strings.Contains(err.Error(), "仅支持支付宝") || huifuPCTradeType(channel) != "" {
+			t.Fatal("provider did not explicitly reject unsupported channel", channel, err)
+		}
+	}
+	if calls != 0 {
+		t.Fatal("unsupported channel reached payment gateway")
+	}
+}
+
+func TestHuifuAlipayPreorderValidatesSignedChannelAndPayload(t *testing.T) {
+	c := testHuifuClient(t)
+	id := "P20261021IG12345678901234567890"
+	for _, tc := range []struct {
+		name, tradeType, payload string
+		accepted                 bool
+	}{
+		{"alipay", "A_NATIVE", "https://qr.alipay.com/test", true},
+		{"alipay_native", "A_NATIVE", "alipays://platformapi/startapp?appId=test", true},
+		{"signed_https_intermediary", "A_NATIVE", "https://checkout.example.org/huifu-pay", true},
+		{"omitted_optional_trade_type", "", "https://qr.alipay.com/test", true},
+		{"wrong_trade_type", "T_NATIVE", "https://checkout.example.org/pay", false},
+		{"wechat_scheme", "A_NATIVE", "weixin://wxpay/bizpayurl?pr=test", false},
+		{"wechat_https", "A_NATIVE", "https://weixin.qq.com/q/test", false},
+		{"wechat_without_trade_type", "", "weixin://wxpay/bizpayurl?pr=test", false},
+		{"unsigned_plain_http", "A_NATIVE", "http://checkout.example.org/pay", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				data := map[string]any{"resp_code": "00000100", "huifu_id": c.huifuID, "req_seq_id": id, "qr_code": tc.payload}
+				if tc.tradeType != "" {
+					data["trade_type"] = tc.tradeType
+				}
+				sig, _ := signHuifuData(data, c.privateKey)
+				json.NewEncoder(w).Encode(map[string]any{"data": data, "sign": sig})
+			}))
+			defer ts.Close()
+			c.baseURL, c.httpClient = ts.URL, ts.Client()
+			result, err := c.CreatePayment(id, "测试支付宝", 990, "alipay", time.Now().Add(time.Minute))
+			if (err == nil) != tc.accepted {
+				t.Fatal("signed reply channel or payload check mismatch", err)
+			}
+			if tc.accepted && (result.TradeType != "A_NATIVE" || result.JumpURL != tc.payload) {
+				t.Fatal("accepted payment entry changed")
+			}
+		})
 	}
 }
 func TestHuifuUnsignedGatewayResponseRejected(t *testing.T) {

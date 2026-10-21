@@ -1,6 +1,6 @@
 # 阅读额度与订阅会员支付
 
-InfoGap 复用现有 Go 项目的汇付签名适配器，保留独立订单和回调地址。会员订单只延长 `users.membership_until`；额度订单只增加持久阅读余额 `users.credits`。两种购买都不增加贡献积分、提升段位或缩短内容查看延迟。额度包也不授予订阅会员。
+InfoGap 复用 `daka-web`、`saotu-web` 已有的汇付签名适配器，保留独立订单和回调地址。新订单只支持支付宝。会员订单只延长 `users.membership_until`；额度订单只增加持久阅读余额 `users.credits`。两种购买都不增加贡献积分、提升段位或缩短内容查看延迟。额度包也不授予订阅会员。
 
 套餐价格由服务端固定。均为一次性购买，不自动续费。会员续购从当前有效期结束时顺延；已经过期则从本次确认到账时开始计算。
 
@@ -30,12 +30,14 @@ InfoGap 复用现有 Go 项目的汇付签名适配器，保留独立订单和�
 
 配置不完整时，套餐接口仍返回价格，但 `enabled=false` 并给出 `disabled_reason`，开单返回 503。配置完整只表示本地准备好，不能替代真实支付验收。
 
+支付宝沿用汇付 PC 聚合正扫：预下单使用 `/v2/trade/payment/jspay` 与 `trade_type=A_NATIVE`，查单使用 `/v2/trade/payment/scanpay/query`。HTTP 开单接口和支付适配器都拒绝其他新渠道。历史微信订单仍可查询、核验回调并结算，数据库保留其渠道值，但不再输出微信付款链接或二维码。
+
 ## 前端接口
 
 | 方法与路径 | 请求或返回 |
 |---|---|
-| `GET /api/billing/plans` | `{enabled,disabled_reason,plans:[{id,name,type,amount_cents,days,credits}],channels:["alipay","wechat"],auto_renew:false}` |
-| `POST /api/billing/orders` | 请求 `{plan:套餐ID,channel:"alipay"或"wechat"}`；返回 `{order,message?}` |
+| `GET /api/billing/plans` | `{enabled,disabled_reason,plans:[{id,name,type,amount_cents,days,credits}],channels:["alipay"],auto_renew:false}` |
+| `POST /api/billing/orders` | 请求 `{plan:套餐ID,channel:"alipay"}`；返回 `{order,message?}` |
 | `GET /api/billing/orders` | 登录用户最近 50 笔订单 `{items:[Order]}` |
 | `GET /api/billing/orders/{id}` | 核对本人订单，返回 `{order,user,message?}`；未终结订单最多每 5 秒向上游核查一次 |
 | `POST /api/billing/notify/huifu` | 汇付签名表单通知；不使用登录 Cookie |
@@ -44,7 +46,7 @@ InfoGap 复用现有 Go 项目的汇付签名适配器，保留独立订单和�
 
 查询订单返回的 `user` 是最新账户。额度购买成功后，前端读取 `user.credits` 刷新余额，并展示额度到账提示；会员订单则展示新的会员有效期。账户流水中额度购买类型为 `purchase`，金额为实际增加的额度。
 
-`pay_url` 仅在上游返回 HTTP(S) 地址时提供；`qr_payload` 也可能是 `weixin://` 或 `alipays://`。前端按 `payment_kind` 显示支付链接或本地生成的二维码，不把扫码载荷伪装成网页，也不把载荷发送给第三方图片服务。
+新支付入口只接受已验签汇付响应中的 HTTPS 地址或 `alipays://` 载荷；拒绝 `weixin://`、明确的微信支付域名、带用户信息或换行的地址。汇付可能返回 HTTPS 中间支付页，因此不把合法入口限定为单一支付宝域名。HTTPS 入口写入 `pay_url`；`alipays://` 载荷通过 `qr_payload` 供本地生成二维码。前端按 `payment_kind` 显示支付链接或二维码，不把扫码载荷伪装成网页，也不把载荷发送给第三方图片服务。
 
 同用户、同套餐、同渠道的有效待支付订单会复用，30 分钟后过期。开单超时不判定失败：返回 202、保留订单并提示稍后查询，避免重复收费。前端只有收到服务端的 `success` 才展示已付款。
 

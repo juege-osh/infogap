@@ -12,15 +12,21 @@ import (
 )
 
 type fakeBillingProvider struct {
-	creates   int
-	createErr error
-	query     huifuPaymentResult
-	queryErr  error
+	creates         int
+	createErr       error
+	createPayload   string
+	createTradeType string
+	query           huifuPaymentResult
+	queryErr        error
 }
 
 func (f *fakeBillingProvider) CreatePayment(id, subject string, amount int64, channel string, expires time.Time) (huifuPaymentResult, error) {
 	f.creates++
-	return huifuPaymentResult{MerchantID: "test-merchant", PaymentNo: id, AmountCents: amount, JumpURL: "weixin://wxpay/bizpayurl?pr=test"}, f.createErr
+	payload := f.createPayload
+	if payload == "" {
+		payload = "alipays://platformapi/startapp?appId=test"
+	}
+	return huifuPaymentResult{MerchantID: "test-merchant", PaymentNo: id, AmountCents: amount, TradeType: f.createTradeType, JumpURL: payload}, f.createErr
 }
 func (f *fakeBillingProvider) QueryPayment(string, int64) (huifuPaymentResult, error) {
 	return f.query, f.queryErr
@@ -85,25 +91,145 @@ func TestBillingPlansDisabledNoMock(t *testing.T) {
 }
 func TestBillingCheckoutPriceOwnershipReuse(t *testing.T) {
 	s, f, _, cookie := billingFixture(t)
-	o := billingPurchase(t, s, cookie, "monthly", "wechat")
+	o := billingPurchase(t, s, cookie, "monthly", "alipay")
 	if o.AmountCents != 990 || o.Days != 30 || len(o.ID) > 32 || o.PayURL != "" || o.PaymentKind != "qr" || o.QRPayload == "" {
 		t.Fatalf("wrong order: %+v", o)
 	}
-	again := billingPurchase(t, s, cookie, "monthly", "wechat")
+	again := billingPurchase(t, s, cookie, "monthly", "alipay")
 	if again.ID != o.ID || f.creates != 1 {
 		t.Fatal("duplicate checkout")
 	}
-	other := billingPurchase(t, s, cookie, "monthly", "alipay")
+	other := billingPurchase(t, s, cookie, "yearly", "alipay")
 	if other.ID == o.ID || f.creates != 2 {
-		t.Fatal("channel not respected")
+		t.Fatal("different plan reused the wrong invoice")
 	}
 	_, otherCookie := account(t, s, "otherpayer@example.org", "member", 10)
 	mustStatus(t, request(s, "GET", "/api/billing/orders/"+o.ID, nil, otherCookie), 404)
 	mustStatus(t, request(s, "POST", "/api/billing/orders", map[string]any{"plan": "monthly", "channel": "alipay", "amount_cents": 1}, cookie), 400)
 }
+
+func TestBillingOnlyAdvertisesAndCreatesAlipay(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		s, provider, _, cookie := billingFixture(t)
+		if !enabled {
+			s.billing.provider = nil
+		}
+		w := request(s, "GET", "/api/billing/plans", nil, "")
+		mustStatus(t, w, 200)
+		var catalog struct{ Channels []string }
+		if err := json.Unmarshal(w.Body.Bytes(), &catalog); err != nil || len(catalog.Channels) != 1 || catalog.Channels[0] != "alipay" {
+			t.Fatal("catalog advertised another payment channel", w.Body.String())
+		}
+		for _, channel := range []string{"wechat", "weixin", "WECHAT", "ALIPAY", " alipay ", "", "bank", "alipay,wechat"} {
+			w = request(s, "POST", "/api/billing/orders", map[string]string{"plan": "credits_100", "channel": channel}, cookie)
+			mustStatus(t, w, 400)
+			if !strings.Contains(w.Body.String(), "仅支持支付宝") {
+				t.Fatal("channel rejection was not explicit", w.Body.String())
+			}
+		}
+		var count int
+		if err := s.db.QueryRow("SELECT COUNT(*) FROM billing_orders").Scan(&count); err != nil || count != 0 || provider.creates != 0 {
+			t.Fatal("invalid channel reached the provider or created an order")
+		}
+	}
+}
+
+func TestBillingAlipayPayloadValidation(t *testing.T) {
+	for _, valid := range []string{"alipays://platformapi/startapp?appId=test", "https://qr.alipay.com/test", "https://checkout.example.org/signed-huifu-entry?order=123"} {
+		if !billingPayPayload(valid) {
+			t.Fatal("valid Alipay or signed intermediary payload was rejected", valid)
+		}
+	}
+	for _, invalid := range []string{"weixin://wxpay/bizpayurl?pr=test", "WeIxIn://wxpay/bizpayurl?pr=test", "https://weixin.qq.com/q/test", "https://pay.weixin.qq.com/test", "https://wx.tenpay.com/test", "https://wx.qq.com/test", "https://WEIXIN.QQ.COM./test", "http://qr.alipay.com/test", "https://user:pass@checkout.example.org/test", "javascript:alert(1)", "data:text/plain,test", "https://qr.alipay.com/test\n", ""} {
+		if billingPayPayload(invalid) {
+			t.Fatal("invalid or WeChat payload was accepted", invalid)
+		}
+	}
+}
+
+func TestBillingNeverExposesWeChatPayloadForAlipayOrder(t *testing.T) {
+	for _, tc := range []struct{ payload, tradeType string }{
+		{"weixin://wxpay/bizpayurl?pr=test", ""},
+		{"https://weixin.qq.com/q/test", "A_NATIVE"},
+		{"https://checkout.example.org/pay", "T_NATIVE"},
+	} {
+		s, provider, uid, cookie := billingFixture(t)
+		provider.createPayload, provider.createTradeType = tc.payload, tc.tradeType
+		w := request(s, "POST", "/api/billing/orders", map[string]string{"plan": "credits_100", "channel": "alipay"}, cookie)
+		mustStatus(t, w, 202)
+		var reply struct{ Order billingOrder }
+		if err := json.Unmarshal(w.Body.Bytes(), &reply); err != nil || reply.Order.Status != "pending" || reply.Order.Channel != "alipay" || reply.Order.QRPayload != "" || reply.Order.PayURL != "" {
+			t.Fatal("mismatched payment entry was displayed", w.Body.String())
+		}
+		var payload string
+		var balance, grants int
+		s.db.QueryRow("SELECT pay_payload FROM billing_orders WHERE id=?", reply.Order.ID).Scan(&payload)
+		s.db.QueryRow("SELECT credits FROM users WHERE id=?", uid).Scan(&balance)
+		s.db.QueryRow("SELECT COUNT(*) FROM billing_credit_grants").Scan(&grants)
+		if payload != "" || balance != 10 || grants != 0 {
+			t.Fatal("bad checkout persisted a payment entry or granted credits")
+		}
+		// A stale mislabelled invoice from an older version must not bypass the
+		// new payload check through the pending-order reuse/read paths.
+		if _, err := s.db.Exec("UPDATE billing_orders SET pay_payload='weixin://wxpay/bizpayurl?pr=legacy' WHERE id=?", reply.Order.ID); err != nil {
+			t.Fatal(err)
+		}
+		reused := billingPurchase(t, s, cookie, "credits_100", "alipay")
+		if reused.ID != reply.Order.ID || reused.QRPayload != "" || reused.PayURL != "" || provider.creates != 1 {
+			t.Fatal("reused order exposed a mismatched payload or created another charge")
+		}
+	}
+}
+
+func TestBillingHistoricalWeChatOrdersRemainReadableAndReconcilable(t *testing.T) {
+	for _, product := range []struct {
+		plan    string
+		credits int
+	}{{"monthly", 0}, {"credits_100", 100}} {
+		t.Run(product.plan, func(t *testing.T) {
+			s, provider, uid, cookie := billingFixture(t)
+			id := "P20261021IGhistoricalwechat"
+			at := stamp(s.now())
+			_, err := s.db.Exec(`INSERT INTO billing_orders(id,user_id,plan,name,amount_cents,days,credits,channel,pay_payload,expires_at,created_at,updated_at) VALUES(?,?,?,?,990,30,?,'wechat','weixin://wxpay/bizpayurl?pr=legacy',?,?,?)`, id, uid, product.plan, "历史订单", product.credits, stamp(s.now().Add(time.Minute)), at, at)
+			if err != nil {
+				t.Fatal(err)
+			}
+			old, err := s.billingLoad(t.Context(), id, uid)
+			if err != nil || old.Channel != "wechat" || old.QRPayload != "" || old.PayURL != "" || old.AmountCents != 990 {
+				t.Fatal("historical record was lost or relabelled", err)
+			}
+			var storedPayload string
+			if err := s.db.QueryRow("SELECT pay_payload FROM billing_orders WHERE id=?", id).Scan(&storedPayload); err != nil || storedPayload != "weixin://wxpay/bizpayurl?pr=legacy" {
+				t.Fatal("historical accounting record was modified")
+			}
+			mustStatus(t, request(s, "GET", "/api/billing/orders", nil, cookie), 200)
+			wrongChannel := billingSuccess(old)
+			wrongChannel.TradeType = "A_NATIVE"
+			mustStatus(t, billingCallback(s, wrongChannel, "test-valid"), 500)
+			provider.queryErr, provider.query = nil, billingSuccess(old)
+			provider.query.TradeType = "T_NATIVE"
+			w := request(s, "GET", "/api/billing/orders/"+id, nil, cookie)
+			mustStatus(t, w, 200)
+			var reply struct{ Order billingOrder }
+			if err := json.Unmarshal(w.Body.Bytes(), &reply); err != nil || reply.Order.Status != "success" || reply.Order.Channel != "wechat" || reply.Order.AmountCents != 990 {
+				t.Fatal("verified historical payment failed reconciliation", w.Body.String())
+			}
+			for range 2 {
+				mustStatus(t, billingCallback(s, provider.query, "test-valid"), 200)
+			}
+			var credits, points, grants int
+			var until string
+			s.db.QueryRow("SELECT credits,points,membership_until FROM users WHERE id=?", uid).Scan(&credits, &points, &until)
+			s.db.QueryRow("SELECT (SELECT COUNT(*) FROM billing_grants)+(SELECT COUNT(*) FROM billing_credit_grants)").Scan(&grants)
+			if credits != 10+product.credits || points != 0 || grants != 1 || (product.credits == 0 && until != stamp(s.now().Add(30*24*time.Hour))) || (product.credits > 0 && until != "") {
+				t.Fatal("historical payment changed product rights or granted twice")
+			}
+		})
+	}
+}
 func TestBillingCallbackGrantsOnlySubscriptionOnce(t *testing.T) {
 	s, _, uid, cookie := billingFixture(t)
-	o := billingPurchase(t, s, cookie, "monthly", "wechat")
+	o := billingPurchase(t, s, cookie, "monthly", "alipay")
 	result := billingSuccess(o)
 	mustStatus(t, billingCallback(s, result, "bad"), 400)
 	var until string
@@ -124,7 +250,7 @@ func TestBillingCallbackGrantsOnlySubscriptionOnce(t *testing.T) {
 	if n != 1 {
 		t.Fatal("duplicate grant", n)
 	}
-	renewed := billingPurchase(t, s, cookie, "yearly", "wechat")
+	renewed := billingPurchase(t, s, cookie, "yearly", "alipay")
 	mustStatus(t, billingCallback(s, billingSuccess(renewed), "test-valid"), 200)
 	s.db.QueryRow("SELECT membership_until FROM users WHERE id=?", uid).Scan(&until)
 	if until != stamp(s.now().Add(395*24*time.Hour)) {
@@ -137,7 +263,7 @@ func TestBillingCallbackGrantsOnlySubscriptionOnce(t *testing.T) {
 	}
 }
 func TestBillingRejectMismatchedSuccessfulPayment(t *testing.T) {
-	mutations := map[string]func(*huifuPaymentResult){"merchant": func(r *huifuPaymentResult) { r.MerchantID = "other" }, "order": func(r *huifuPaymentResult) { r.PaymentNo = "unknown" }, "amount": func(r *huifuPaymentResult) { r.AmountCents = 1 }, "zero_amount": func(r *huifuPaymentResult) { r.AmountCents = 0 }, "state": func(r *huifuPaymentResult) { r.OrderStatus = "" }, "transaction": func(r *huifuPaymentResult) { r.PlatformTradeNo = "" }, "unknown_status": func(r *huifuPaymentResult) { r.TransactionStatus = "UNKNOWN" }}
+	mutations := map[string]func(*huifuPaymentResult){"merchant": func(r *huifuPaymentResult) { r.MerchantID = "other" }, "order": func(r *huifuPaymentResult) { r.PaymentNo = "unknown" }, "amount": func(r *huifuPaymentResult) { r.AmountCents = 1 }, "channel": func(r *huifuPaymentResult) { r.TradeType = "T_NATIVE" }, "zero_amount": func(r *huifuPaymentResult) { r.AmountCents = 0 }, "state": func(r *huifuPaymentResult) { r.OrderStatus = "" }, "transaction": func(r *huifuPaymentResult) { r.PlatformTradeNo = "" }, "unknown_status": func(r *huifuPaymentResult) { r.TransactionStatus = "UNKNOWN" }}
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {
 			s, _, uid, cookie := billingFixture(t)
@@ -305,12 +431,12 @@ func TestBillingCreditPlansAndCheckoutUseServerPrices(t *testing.T) {
 		amount int64
 		credit int
 	}{{"credits_100", 990, 100}, {"credits_350", 2900, 350}, {"credits_1000", 7900, 1000}} {
-		o := billingPurchase(t, s, cookie, test.id, "wechat")
+		o := billingPurchase(t, s, cookie, test.id, "alipay")
 		if o.Type != "credits" || o.AmountCents != test.amount || o.Credits != test.credit || o.Days != 0 || o.MembershipUntil != "" {
 			t.Fatalf("incorrect credit order: %+v", o)
 		}
 	}
-	mustStatus(t, request(s, "POST", "/api/billing/orders", map[string]any{"plan": "credits_100", "channel": "wechat", "credits": 999999}, cookie), 400)
+	mustStatus(t, request(s, "POST", "/api/billing/orders", map[string]any{"plan": "credits_100", "channel": "alipay", "credits": 999999}, cookie), 400)
 }
 
 func TestBillingCreditsGrantOnlyStoredQuantityAndRefreshUser(t *testing.T) {
@@ -347,10 +473,10 @@ func TestBillingCreditsGrantOnlyStoredQuantityAndRefreshUser(t *testing.T) {
 }
 
 func TestBillingCreditsRejectInvalidOrFailedPayments(t *testing.T) {
-	for _, mode := range []string{"signature", "amount", "merchant", "failed"} {
+	for _, mode := range []string{"signature", "amount", "merchant", "channel", "failed"} {
 		t.Run(mode, func(t *testing.T) {
 			s, _, uid, cookie := billingFixture(t)
-			o := billingPurchase(t, s, cookie, "credits_100", "wechat")
+			o := billingPurchase(t, s, cookie, "credits_100", "alipay")
 			r, signature, code := billingSuccess(o), "test-valid", 500
 			switch mode {
 			case "signature":
@@ -359,6 +485,8 @@ func TestBillingCreditsRejectInvalidOrFailedPayments(t *testing.T) {
 				r.AmountCents--
 			case "merchant":
 				r.MerchantID = "another-merchant"
+			case "channel":
+				r.TradeType = "T_NATIVE"
 			case "failed":
 				r.TransactionStatus, r.OrderStatus, code = "F", "2", 200
 			}

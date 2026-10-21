@@ -50,7 +50,7 @@ func gapScan(r scanner, u *User) (*Gap, error) {
 	if err != nil {
 		return nil, err
 	}
-	g.Code = gapCode(g.ID, g.Level)
+	g.Code = gapCode(g.ID, g.Level, g.Category)
 	g.Tags = []string{}
 	g.UnlockCost = unlockCosts[g.Level]
 	_ = json.Unmarshal([]byte(tags), &g.Tags)
@@ -454,7 +454,7 @@ func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "投稿失败")
 		return
 	}
-	send(w, 201, map[string]any{"id": id, "code": gapCode(id, in.Level), "status": "pending"})
+	send(w, 201, map[string]any{"id": id, "code": gapCode(id, in.Level, in.Category), "status": "pending"})
 }
 func (s *server) activity(w http.ResponseWriter, r *http.Request) {
 	u := s.require(w, r)
