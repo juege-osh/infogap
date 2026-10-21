@@ -46,6 +46,10 @@ func TestBrowserPreview(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	_, err = s.db.Exec("INSERT INTO gaps(title,summary,body,category,level,evidence,source_name,source_url,source_visibility,published_at,released_at,created_at,updated_at,status,tags) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'published','[]')", "社区线索：实验方法的适用条件", "这条测试线索用于核对前台排版与后台出处权限。", "## 方法与边界\n这项方法的**适用条件**仍待独立核验。\n\n[公开论文](https://www.nature.com/)", "物理", "ordinary", "unverified", "Linux.do", "https://linux.do/t/qa-only", "internal", stamp(time.Now().Add(-96*time.Hour)), stamp(time.Now().Add(-96*time.Hour)), now, now)
+	if err != nil {
+		t.Fatal(err)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /__qa/{role}", func(w http.ResponseWriter, r *http.Request) {
 		var id int64

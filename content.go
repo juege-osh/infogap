@@ -13,35 +13,36 @@ import (
 )
 
 type Gap struct {
-	ID          int64         `json:"id"`
-	Title       string        `json:"title"`
-	Summary     string        `json:"summary"`
-	Body        string        `json:"body,omitempty"`
-	Category    string        `json:"category"`
-	Level       string        `json:"level"`
-	Evidence    string        `json:"evidence"`
-	SourceName  string        `json:"source_name"`
-	SourceURL   string        `json:"source_url"`
-	PublishedAt string        `json:"published_at"`
-	ReleasedAt  string        `json:"released_at"`
-	CreatedAt   string        `json:"created_at"`
-	UpdatedAt   string        `json:"updated_at"`
-	Status      string        `json:"status"`
-	Tags        []string      `json:"tags"`
-	Author      string        `json:"author"`
-	AuthorID    sql.NullInt64 `json:"-"`
-	Unlocked    bool          `json:"unlocked"`
-	Saved       bool          `json:"saved"`
-	ReviewNote  string        `json:"review_note,omitempty"`
-	Rewarded    int           `json:"-"`
+	ID               int64         `json:"id"`
+	Title            string        `json:"title"`
+	Summary          string        `json:"summary"`
+	Body             string        `json:"body,omitempty"`
+	Category         string        `json:"category"`
+	Level            string        `json:"level"`
+	Evidence         string        `json:"evidence"`
+	SourceName       string        `json:"source_name"`
+	SourceURL        string        `json:"source_url"`
+	SourceVisibility string        `json:"source_visibility"`
+	PublishedAt      string        `json:"published_at"`
+	ReleasedAt       string        `json:"released_at"`
+	CreatedAt        string        `json:"created_at"`
+	UpdatedAt        string        `json:"updated_at"`
+	Status           string        `json:"status"`
+	Tags             []string      `json:"tags"`
+	Author           string        `json:"author"`
+	AuthorID         sql.NullInt64 `json:"-"`
+	Unlocked         bool          `json:"unlocked"`
+	Saved            bool          `json:"saved"`
+	ReviewNote       string        `json:"review_note,omitempty"`
+	Rewarded         int           `json:"-"`
 }
 
-const gapSelect = `SELECT g.id,g.title,g.summary,g.body,g.category,g.level,g.evidence,g.source_name,g.source_url,g.published_at,g.released_at,g.created_at,g.updated_at,g.status,g.tags,g.author_id,g.review_note,g.rewarded,COALESCE(u.username,'InfoGap 编辑部'),EXISTS(SELECT 1 FROM unlocks un WHERE un.gap_id=g.id AND un.user_id=?),EXISTS(SELECT 1 FROM saves sv WHERE sv.gap_id=g.id AND sv.user_id=?) FROM gaps g LEFT JOIN users u ON g.author_id=u.id `
+const gapSelect = `SELECT g.id,g.title,g.summary,g.body,g.category,g.level,g.evidence,g.source_name,g.source_url,g.source_visibility,g.published_at,g.released_at,g.created_at,g.updated_at,g.status,g.tags,g.author_id,g.review_note,g.rewarded,COALESCE(u.username,'InfoGap 编辑部'),EXISTS(SELECT 1 FROM unlocks un WHERE un.gap_id=g.id AND un.user_id=?),EXISTS(SELECT 1 FROM saves sv WHERE sv.gap_id=g.id AND sv.user_id=?) FROM gaps g LEFT JOIN users u ON g.author_id=u.id `
 
 func gapScan(r scanner, u *User) (*Gap, error) {
 	g := &Gap{}
 	var tags string
-	err := r.Scan(&g.ID, &g.Title, &g.Summary, &g.Body, &g.Category, &g.Level, &g.Evidence, &g.SourceName, &g.SourceURL, &g.PublishedAt, &g.ReleasedAt, &g.CreatedAt, &g.UpdatedAt, &g.Status, &tags, &g.AuthorID, &g.ReviewNote, &g.Rewarded, &g.Author, &g.Unlocked, &g.Saved)
+	err := r.Scan(&g.ID, &g.Title, &g.Summary, &g.Body, &g.Category, &g.Level, &g.Evidence, &g.SourceName, &g.SourceURL, &g.SourceVisibility, &g.PublishedAt, &g.ReleasedAt, &g.CreatedAt, &g.UpdatedAt, &g.Status, &tags, &g.AuthorID, &g.ReviewNote, &g.Rewarded, &g.Author, &g.Unlocked, &g.Saved)
 	if err != nil {
 		return nil, err
 	}
@@ -58,6 +59,9 @@ func gapScan(r scanner, u *User) (*Gap, error) {
 	}
 	if !owner && !staff && g.Status != "disputed" {
 		g.ReviewNote = ""
+	}
+	if g.SourceVisibility == "internal" && !staff {
+		redactInternalSource(g)
 	}
 	return g, nil
 }
@@ -131,7 +135,7 @@ func (s *server) listGaps(w http.ResponseWriter, r *http.Request) {
 			fail(w, 403, "订阅功能需黄金段位或有效功能会员")
 			return
 		}
-		where = " WHERE g.status='published' AND EXISTS(SELECT 1 FROM (SELECT kind,value FROM subscriptions WHERE user_id=? ORDER BY id LIMIT ?) sub WHERE (sub.kind='category' AND sub.value=g.category) OR (sub.kind='tag' AND EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(g.tags) THEN g.tags ELSE '[]' END) jt WHERE jt.value=sub.value COLLATE NOCASE)))"
+		where = " WHERE g.status='published' AND EXISTS(SELECT 1 FROM (SELECT kind,value FROM subscriptions WHERE user_id=? ORDER BY id LIMIT ?) sub WHERE (sub.kind='category' AND sub.value=g.category) OR (sub.kind='tag' AND EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(g.tags) THEN g.tags ELSE '[]' END) jt WHERE " + publicTextSQL("jt.value", u) + "=sub.value COLLATE NOCASE)))"
 		args = []any{u.ID, u.Entitlements.SubscriptionLimit}
 	}
 	visible, visibleArgs := s.visibilityClause(u)
@@ -148,7 +152,7 @@ func (s *server) listGaps(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "搜索词过长")
 			return
 		}
-		where += " AND (g.title LIKE ? OR g.summary LIKE ? OR g.tags LIKE ?)"
+		where += " AND (" + publicTextSQL("g.title", u) + " LIKE ? OR " + publicTextSQL("g.summary", u) + " LIKE ? OR EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(g.tags) THEN g.tags ELSE '[]' END) search_tag WHERE " + publicTextSQL("search_tag.value", u) + " LIKE ?))"
 		p := "%" + q + "%"
 		args = append(args, p, p, p)
 	}
@@ -376,6 +380,10 @@ func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 	parsed, _ := url.Parse(in.SourceURL)
 	parsed.Fragment = ""
 	in.SourceURL = parsed.String()
+	visibility := defaultSourceVisibility(in.SourceURL)
+	if visibility == "internal" {
+		in.Evidence = "unverified"
+	}
 	tags, _ := json.Marshal(in.Tags)
 	if in.Tags == nil {
 		tags = []byte("[]")
@@ -398,7 +406,7 @@ func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 		fail(w, 409, "站内已有相同标题或来源，请补充现有信息或联系审核员")
 		return
 	}
-	res, err := tx.Exec("INSERT INTO gaps(title,summary,body,category,level,evidence,source_name,source_url,published_at,created_at,updated_at,status,tags,author_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,'pending',?,?)", in.Title, in.Summary, in.Body, in.Category, in.Level, in.Evidence, in.SourceName, in.SourceURL, "", now, now, string(tags), u.ID)
+	res, err := tx.Exec("INSERT INTO gaps(title,summary,body,category,level,evidence,source_name,source_url,source_visibility,published_at,created_at,updated_at,status,tags,author_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?)", in.Title, in.Summary, in.Body, in.Category, in.Level, in.Evidence, in.SourceName, in.SourceURL, visibility, "", now, now, string(tags), u.ID)
 	if err != nil {
 		fail(w, 409, "投稿未保存，来源可能已存在")
 		return

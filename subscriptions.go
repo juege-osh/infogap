@@ -11,7 +11,10 @@ func migrateSchema(db *sql.DB) error {
 	if err := migrateMembership(db); err != nil {
 		return err
 	}
-	return migrateRelease(db)
+	if err := migrateRelease(db); err != nil {
+		return err
+	}
+	return migrateSourceVisibility(db)
 }
 
 func migrateMembership(db *sql.DB) error {

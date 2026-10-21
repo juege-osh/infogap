@@ -201,6 +201,10 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "请选择内容等级")
 			return
 		}
+		if g.SourceVisibility == "internal" && internalSourceRemains(g) {
+			fail(w, 400, "内部线索稿仍含社区名称或链接，请整理标题、摘要、正文与标签后再发布；原始来源会保留在后台")
+			return
+		}
 		if in.Level == "rare" || in.Level == "exclusive" {
 			if utf8.RuneCountInString(in.Note) < 10 {
 				fail(w, 400, "高级信息需填写至少 10 字的核验依据")
@@ -441,12 +445,13 @@ func (s *server) editGap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Title    string   `json:"title"`
-		Summary  string   `json:"summary"`
-		Body     string   `json:"body"`
-		Category string   `json:"category"`
-		Evidence string   `json:"evidence"`
-		Tags     []string `json:"tags"`
+		Title            string   `json:"title"`
+		Summary          string   `json:"summary"`
+		Body             string   `json:"body"`
+		Category         string   `json:"category"`
+		Evidence         string   `json:"evidence"`
+		Tags             []string `json:"tags"`
+		SourceVisibility *string  `json:"source_visibility"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -460,6 +465,10 @@ func (s *server) editGap(w http.ResponseWriter, r *http.Request) {
 	}
 	if !has(categories, in.Category) || !has([]string{"peer_reviewed", "preprint", "official", "repository", "unverified"}, in.Evidence) || len(in.Tags) > 8 {
 		fail(w, 400, "分类、证据类型或标签不正确")
+		return
+	}
+	if in.SourceVisibility != nil && !has([]string{"public", "internal"}, *in.SourceVisibility) {
+		fail(w, 400, "来源可见性不正确")
 		return
 	}
 	for _, tag := range in.Tags {
@@ -489,9 +498,13 @@ func (s *server) editGap(w http.ResponseWriter, r *http.Request) {
 		tags = []byte("[]")
 	}
 	at := stamp(s.now())
-	_, e = tx.Exec("UPDATE gaps SET title=?,summary=?,body=?,category=?,evidence=?,tags=?,status='pending',updated_at=? WHERE id=?", in.Title, in.Summary, in.Body, in.Category, in.Evidence, string(tags), at, id)
+	visibility := g.SourceVisibility
+	if in.SourceVisibility != nil {
+		visibility = *in.SourceVisibility
+	}
+	_, e = tx.Exec("UPDATE gaps SET title=?,summary=?,body=?,category=?,evidence=?,tags=?,source_visibility=?,status='pending',updated_at=? WHERE id=?", in.Title, in.Summary, in.Body, in.Category, in.Evidence, string(tags), visibility, at, id)
 	if e == nil {
-		before, _ := json.Marshal(map[string]any{"title": g.Title, "summary": g.Summary, "body": g.Body, "category": g.Category, "evidence": g.Evidence, "tags": g.Tags, "status": g.Status})
+		before, _ := json.Marshal(map[string]any{"title": g.Title, "summary": g.Summary, "body": g.Body, "category": g.Category, "evidence": g.Evidence, "tags": g.Tags, "status": g.Status, "source_visibility": g.SourceVisibility})
 		e = audit(tx, r.Context(), u.ID, "edit_gap", strconv.FormatInt(id, 10), string(before), at)
 	}
 	if e != nil || tx.Commit() != nil {

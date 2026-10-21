@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 UA = "InfoGap/1.0 (+https://infogap.osh.lol; official-feed-monitor)"
 MAX_BYTES = 3 * 1024 * 1024
 TIMEOUT = 18
-ALLOWED_HOSTS = {"www.nature.com", "www.science.org", "rss.arxiv.org", "www.nasa.gov", "www.esa.int", "api.github.com"}
+ALLOWED_HOSTS = {"www.nature.com", "www.science.org", "rss.arxiv.org", "www.nasa.gov", "www.esa.int", "api.github.com", "linux.do"}
 ROBOT_CACHE = {}
 HOST_LAST = {}
 
@@ -175,6 +175,8 @@ def robot_rules(url):
             if exc.code not in (404, 410):
                 raise RuntimeError("robots.txt不可读取，暂缓采集（HTTP %s）" % exc.code)
             raw = "User-agent: *\nAllow: /"
+        if raw.lstrip().startswith("<"):
+            raise RuntimeError("robots.txt返回网页或验证页面，已停止")
         groups, agents, rules, crawl = [], [], [], 2.0
         for line in (raw + "\nUser-agent: __end__").splitlines():
             line = line.split("#", 1)[0].strip()
@@ -248,7 +250,33 @@ def parse_items(raw, source):
             raise ValueError("来源返回了网页而非RSS/Atom订阅")
     return [{"title": child_text(n, ["title"]), "url": child_text(n, ["link"]),
              "description": child_text(n, ["description", "summary", "encoded", "content"]),
+             "categories": [text_only(c.attrib.get("term", "") or "".join(c.itertext()))
+                            for c in n if c.tag.split("}")[-1] == "category"],
              "date": child_text(n, ["published", "pubDate", "date", "updated"])} for n in records]
+
+
+def community_source(source):
+    return (source.get("source_visibility") == "internal" or
+            urllib.parse.urlsplit(source["url"]).hostname == "linux.do")
+
+
+def source_filter(item, source):
+    """Conservative editorial gate for public community metadata, not a quality verdict."""
+    if source.get("editorial_filter") != "linuxdo_tech":
+        return True
+    if urllib.parse.urlsplit(item.get("url", "")).hostname != "linux.do":
+        return False
+    categories = [text_only(value).casefold() for value in item.get("categories", [])]
+    allowed = [value.casefold() for value in source.get("allowed_categories", [])]
+    # Missing category metadata is not enough to admit a mixed latest-feed post.
+    if not any(value in allowed for value in categories):
+        return False
+    title = text_only(item.get("title", ""))
+    labels = " ".join(categories)
+    if re.search(source["exclude_pattern"], title + " " + labels, re.I):
+        return False
+    return bool(re.search(source["topic_pattern"], title, re.I) and
+                re.search(source["signal_pattern"], title, re.I))
 
 
 def candidate(item, source):
@@ -257,10 +285,28 @@ def candidate(item, source):
         raise ValueError("条目没有标题")
     url = canonical_url(item["url"])
     # Feed text is an excerpt, never claimed to be an original Chinese analysis.
-    excerpt = text_only(item.get("description", ""))[:500]
+    internal = community_source(source)
+    excerpt = text_only(item.get("description", ""))[:200 if internal else 500]
     date = stamp(item.get("date"))
     if date and parse_date(date) > utcnow() + dt.timedelta(days=1):
         raise ValueError("来源日期在未来，需人工核对")
+    if internal:
+        category = source["category"]
+        if re.search(r"人工智能|大模型|机器学习|深度学习|神经网络|模型|智能体|OpenAI|Anthropic|PyTorch|TensorFlow|\b(?:AI|LLM|GPT|Claude|Gemini|DeepSeek|Qwen|Llama|Codex|Agent)\b", title, re.I):
+            category = "人工智能"
+        elif re.search(r"开源|编程|开发|数据库|编译|软件|漏洞|补丁|\b(?:Linux|Python|Rust|PHP|Java|GitHub|Docker|Kubernetes|PostgreSQL|Redis|API|SDK)\b", title, re.I):
+            category = "开源技术"
+        body = ("## 核心进展\n\n**待核验线索**。以下仅为公开订阅的短摘录，不代表已确认原帖结论：\n\n" +
+                (excerpt or "订阅没有可用摘要；需编辑核对原始证据。") +
+                "\n\n## 为什么值得关注\n\n标题符合科技或开发主题，具体进展、适用条件和实际价值仍需审核者确认。" +
+                "\n\n## 证据与边界\n\n社区用户帖不等于项目官方公告或同行评审论文。未访问登录内容，也未读取或复制原帖全文。" +
+                "发布前须独立核验，重写正文，并去除社区名称和原帖链接；内部出处只供管理员追溯，不能改称官方来源。" +
+                "\n\n## 内部核验参考\n\n原帖标题：" + title + "\n\n[" + source["name"] + "原帖](" + url + ")")
+        return {"title": title, "summary": "待核验候选｜社区公开线索，需补充原始证据和编辑解读。",
+                "body": body, "category": category, "level": "ordinary", "evidence": "unverified",
+                "source_name": source["name"], "source_url": url, "source_visibility": "internal", "published_at": date,
+                "tags": ["自动采集", "待核验", "内部线索"],
+                "review_note": "内部社区线索：只采集公开RSS元信息与最多200字摘录；发布前须去除正文中的社区名称与链接，并独立核验。"}
     limitation = "目前仅采集官方订阅或发布说明，未读取论文全文。英文标题和摘录保留原文，中文解读及价值评级待审核。"
     if source["evidence"] == "preprint":
         limitation += " arXiv收录不等于通过同行评审；订阅日期也可能是公告或修订日期。"
@@ -279,6 +325,12 @@ def insert_gap(db, item, status="pending", historical_seed=False):
     if db.execute("SELECT 1 FROM gaps WHERE source_url=?", (data["source_url"],)).fetchone():
         return 0
     fields = ["title", "summary", "body", "category", "level", "evidence", "source_name", "source_url", "published_at", "review_note"]
+    if data.get("source_visibility") == "internal" or urllib.parse.urlsplit(data["source_url"]).hostname == "linux.do":
+        if "source_visibility" not in [row[1] for row in db.execute("PRAGMA table_info(gaps)")]:
+            raise RuntimeError("数据库缺少source_visibility列；内部来源停止入库，请先更新Go服务")
+        data["source_visibility"], data["evidence"] = "internal", "unverified"
+        status = "pending"
+        fields.append("source_visibility")
     # Only explicitly published, curated historical seeds inherit their source date.
     # Pending feed candidates keep the backend default and receive a release date on approval.
     if historical_seed and status == "published":
@@ -344,8 +396,13 @@ def run(args):
             # Official GitHub API access follows API rate limits, not HTML robots.
             delay = robot_rules(source["url"]) if source["kind"] != "github" else 2
             items = parse_items(fetch(source["url"], delay), source)
-            inserted, invalid, valid = 0, 0, 0
-            for item in items[:args.max_items]:
+            inserted, invalid, valid, filtered = 0, 0, 0, 0
+            for item in items:
+                if not source_filter(item, source):
+                    filtered += 1
+                    continue
+                if valid + invalid >= args.max_items:
+                    break
                 try:
                     gap = candidate(item, source)
                     valid += 1
@@ -354,12 +411,12 @@ def run(args):
                             inserted += insert_gap(db, gap)
                 except (ValueError, KeyError, TypeError):
                     invalid += 1
-            if items and not valid:
+            if items and not valid and invalid:
                 raise ValueError("订阅有条目但没有有效来源链接，需检查解析")
             if db:
                 db.execute("UPDATE sources SET last_success=?,last_error='',last_count=? WHERE id=?", (now(), inserted, source["id"]))
                 db.commit()
-            result.update(ok=True, received=len(items), checked=valid, inserted=inserted, invalid=invalid)
+            result.update(ok=True, received=len(items), checked=valid, inserted=inserted, invalid=invalid, filtered=filtered)
         except Exception as exc:
             failures += 1
             # Do not include headers, credentials or response bodies in logs.

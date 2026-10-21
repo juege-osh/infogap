@@ -2,7 +2,7 @@
 
 本页记录2026年10月21日的核验结果。来源状态会变，后台的最后成功时间与错误记录才是运行时状态。
 
-## 12个来源的核验结果
+## 13个来源的核验结果
 
 | 来源 | 学科 | 方式 | 本机核验 | 订阅内条目数 | 默认间隔 |
 |---|---|---|---|---:|---|
@@ -18,8 +18,23 @@
 | [ESA](https://www.esa.int/rssfeed/Our_Activities/Space_Science) | 天文与空间 | 官方RSS | 可读取 | 15 | 6小时 |
 | [OpenMM](https://api.github.com/repos/openmm/openmm/releases?per_page=10) | 化学 | 官方GitHub API | 可读取 | 9个稳定版本 | 12小时 |
 | [SciPy](https://api.github.com/repos/scipy/scipy/releases?per_page=10) | 开源技术 | 官方GitHub API | 可读取 | 6个稳定版本 | 12小时 |
+| [LINUX DO 公开RSS](https://linux.do/latest.rss) | 前沿科技、人工智能、开源技术 | 官方公开RSS，内部线索 | 生产服务器robots与RSS均HTTP403，未采集 | 0 | 6小时 |
 
 表中数量是订阅当时包含的记录，不是已发表到InfoGap的条数。脚本每个来源每次最多处理10条。Nature与Science的目录同时含研究、评论和新闻，进入候选库时统一标为待核验，不按期刊品牌自动标记为同行评审研究。
+
+## LINUX DO 内部线索
+
+2026年10月21日，从生产服务器以采集器身份访问 `https://linux.do/robots.txt` 和 `https://linux.do/latest.rss`，两者均返回 HTTP 403，响应类型为 HTML。官方首页可见[前沿快讯](https://linux.do/c/news/34)和[开发调优](https://linux.do/c/develop/4)分类，但这不代表服务器能自动读取RSS。本次没有拿到社区候选，更没有发布社区内容。
+
+新增来源 ID 为 `linuxdo-tech`。定时任务会先检查 robots；403、登录或验证码页面会直接停止这个来源，把真实错误写入后台 `last_error`，不切换代理、Cookie、镜像或替代抓取渠道。仅当官方公开RSS正常允许读取时才进入筛选。
+
+筛选只接收RSS中明确属于“前沿快讯/开发调优”的条目，并要求标题同时包含科技主题与发布、研究、性能、版本、漏洞修复等具体信号。羊毛、推广、充值、拼车、求助和闲聊等关键词会排除；缺分类也先跳过。规则偏保守，可能漏掉好帖，审核者可以后续调整配置。`filtered`记录本轮已检查后排除的数量，全部排除不算采集故障。
+
+入库内容只包含标题、日期、最多200字的订阅摘录和内部原帖参考，强制 `source_visibility=internal`、`evidence=unverified`、`status=pending`。即使误传发布参数，也不能直接发布社区条目；旧数据库缺少隐私列时会停止入库。源码不会把社区发言改称官方消息。
+
+原帖地址和社区名称保留给后台追溯。公开发布前应独立核验、重新编辑，并清除对外标题、摘要、正文、标签中的社区名称和原帖链接；普通用户接口不得输出内部出处。后台负责执行这一发布检查，不能只依赖前端隐藏。
+
+部署后核验此来源：`python3 scripts/collect.py --db /path/to/infogap.db --source linuxdo-tech --force`。若仍为403，应保留失败状态，不能填写“来源已接通”。
 
 没有把访问失败的NASA Science `/feed/`或已返回404的CERN旧订阅地址加入正式清单。NASA Science文章可以作为核验后的内容来源，但本次未声称其订阅已接通。知乎、B站目前不在这份自动采集器内；具体接入由后续验证结果决定。
 

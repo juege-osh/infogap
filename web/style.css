@@ -22,3 +22,5 @@
 .staff-identity{display:flex;align-items:center;gap:11px;margin:0 0 15px}.staff-identity>svg{color:var(--gold);flex-shrink:0}.staff-identity h3{font-size:15px;margin-bottom:3px}.staff-identity small{font-size:11px;color:var(--subtle)}.staff-panel .btn{margin-top:15px}
 
 .article h1{text-wrap:balance}
+
+.article-header h1{text-wrap:balance}.source-private{display:inline-flex;align-items:center;padding:2px 7px;border:1px dashed var(--border-strong);border-radius:4px;color:var(--subtle);font-size:10px;white-space:nowrap}

@@ -130,5 +130,27 @@
     "interval_hours": 12,
     "enabled": true,
     "description": "SciPy 官方发布记录，仅收稳定版本。此来源不需要付费API。"
+  },
+  {
+    "id": "linuxdo-tech",
+    "name": "LINUX DO 公开科技线索",
+    "url": "https://linux.do/latest.rss",
+    "kind": "rss",
+    "category": "前沿科技",
+    "evidence": "unverified",
+    "source_visibility": "internal",
+    "interval_hours": 6,
+    "enabled": true,
+    "editorial_filter": "linuxdo_tech",
+    "allowed_categories": [
+      "前沿快讯",
+      "开发调优",
+      "news",
+      "develop"
+    ],
+    "topic_pattern": "人工智能|大模型|机器学习|深度学习|神经网络|AI模型|OpenAI|Anthropic|PyTorch|TensorFlow|英伟达|谷歌|微软|智能体|机器人|量子|芯片|半导体|编程|开发|数据库|编译|软件|开源|漏洞|补丁|\\b(?:AI|LLM|GPT|Claude|Gemini|DeepSeek|Qwen|Llama|Codex|Agent|Linux|Python|Rust|PHP|Java|GitHub|Docker|Kubernetes|PostgreSQL|Redis|API|SDK|TPU|GPU|CPU)\\b",
+    "signal_pattern": "发布|开源|版本|升级|更新|漏洞|补丁|修复|优化|性能|基准|论文|研究|模型|架构|训练|推理|缓存|协议|实验|突破|支持|\\b(?:benchmark|release|security|CVE)\\b",
+    "exclude_pattern": "羊毛|福利|优惠|充值|抽奖|邀请|返利|返现|拼车|合租|公益站|公益推广|高级推广|中转|号池|低价|折扣|代金券|白嫖|免费|求助|请教|推荐|有没有|怎么|能不能|闲聊|纯水|吐槽|日常|签到|水帖|\\?|？",
+    "description": "只尝试官方公开RSS，无登录或绕过；前沿快讯/开发调优中符合科技主题的短元信息线索，经筛选仍只待审核，内部出处不公开。2026-10-21生产robots与RSS均HTTP403，后台保留真实失败。"
   }
 ]
