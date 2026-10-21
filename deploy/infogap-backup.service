@@ -1,0 +1,12 @@
+[Unit]
+Description=Verified private InfoGap database backup
+After=infogap-osh.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 /opt/infogap-osh/current/scripts/backup.py --db /var/lib/infogap-osh/infogap.sqlite --directory /var/backups/infogap-osh
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true

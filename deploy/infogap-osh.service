@@ -1,0 +1,27 @@
+[Unit]
+Description=InfoGap frontier science community
+After=network.target
+
+[Service]
+Type=simple
+User=nobody
+Group=nobody
+WorkingDirectory=/opt/infogap-osh/current
+ExecStart=/opt/infogap-osh/current/app -addr 127.0.0.1:18869 -db /var/lib/infogap-osh/infogap.sqlite -web /opt/infogap-osh/current/web
+Environment=INFOGAP_PUBLIC_URL=https://infogap.osh.lol
+EnvironmentFile=/etc/prompt-osh/smtp.env
+EnvironmentFile=-/etc/prompt-osh/huifu.env
+EnvironmentFile=-/etc/infogap-osh/billing.env
+StateDirectory=infogap-osh
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,134 @@
+[
+  {
+    "id": "nature",
+    "name": "Nature 主刊",
+    "url": "https://www.nature.com/nature.rss",
+    "kind": "rss",
+    "category": "前沿科技",
+    "evidence": "unverified",
+    "interval_hours": 6,
+    "enabled": true,
+    "description": "主刊官方目录；研究、新闻、观点混合，采集后必须逐条识别文章类型。"
+  },
+  {
+    "id": "nature-chemistry",
+    "name": "Nature Chemistry",
+    "url": "https://www.nature.com/nchem.rss",
+    "kind": "rss",
+    "category": "化学",
+    "evidence": "unverified",
+    "interval_hours": 6,
+    "enabled": true,
+    "description": "官方期刊目录；采集不等于已读取全文或确认同行评审类型。"
+  },
+  {
+    "id": "nature-geoscience",
+    "name": "Nature Geoscience",
+    "url": "https://www.nature.com/ngeo.rss",
+    "kind": "rss",
+    "category": "地球与地理",
+    "evidence": "unverified",
+    "interval_hours": 6,
+    "enabled": true,
+    "description": "地球科学官方目录，优先核验研究方法、空间尺度和适用时间。"
+  },
+  {
+    "id": "science",
+    "name": "Science 主刊",
+    "url": "https://www.science.org/action/showFeed?type=etoc&feed=rss&jc=science",
+    "kind": "rss",
+    "category": "前沿科技",
+    "evidence": "unverified",
+    "interval_hours": 6,
+    "enabled": true,
+    "description": "AAAS 官方目录；常只有题名及卷期，需另行核验摘要，不能据标题生成结论。"
+  },
+  {
+    "id": "arxiv-biology",
+    "name": "arXiv 定量生物学",
+    "url": "https://rss.arxiv.org/rss/q-bio",
+    "kind": "rss",
+    "category": "生命科学",
+    "evidence": "preprint",
+    "interval_hours": 12,
+    "enabled": true,
+    "description": "预印本/修订提醒，不能自动标记为经过同行评审。"
+  },
+  {
+    "id": "arxiv-physics",
+    "name": "arXiv 物理学",
+    "url": "https://rss.arxiv.org/rss/physics",
+    "kind": "rss",
+    "category": "物理",
+    "evidence": "preprint",
+    "interval_hours": 12,
+    "enabled": true,
+    "description": "物理学预印本，覆盖应用、原子、流体、光学等方向。"
+  },
+  {
+    "id": "arxiv-chemistry",
+    "name": "arXiv 化学物理",
+    "url": "https://rss.arxiv.org/rss/physics.chem-ph",
+    "kind": "rss",
+    "category": "化学",
+    "evidence": "preprint",
+    "interval_hours": 12,
+    "enabled": true,
+    "description": "计算化学和化学物理预印本，存在跨分类重复，由URL统一去重。"
+  },
+  {
+    "id": "arxiv-geophysics",
+    "name": "arXiv 地球物理",
+    "url": "https://rss.arxiv.org/rss/physics.geo-ph",
+    "kind": "rss",
+    "category": "地球与地理",
+    "evidence": "preprint",
+    "interval_hours": 12,
+    "enabled": true,
+    "description": "地球物理及行星交叉研究；首次提交日期与RSS公告日期需区分。"
+  },
+  {
+    "id": "nasa",
+    "name": "NASA 官方动态",
+    "url": "https://www.nasa.gov/feed/",
+    "kind": "rss",
+    "category": "天文与空间",
+    "evidence": "official",
+    "interval_hours": 6,
+    "enabled": true,
+    "description": "NASA 官方新闻与任务更新；新闻声明不自动等同论文证据。"
+  },
+  {
+    "id": "esa",
+    "name": "ESA 空间科学",
+    "url": "https://www.esa.int/rssfeed/Our_Activities/Space_Science",
+    "kind": "rss",
+    "category": "天文与空间",
+    "evidence": "official",
+    "interval_hours": 6,
+    "enabled": true,
+    "description": "ESA 官方空间科学动态，遵守主站两秒请求间隔。"
+  },
+  {
+    "id": "github-openmm",
+    "name": "GitHub · OpenMM",
+    "url": "https://api.github.com/repos/openmm/openmm/releases?per_page=10",
+    "kind": "github",
+    "category": "化学",
+    "evidence": "repository",
+    "interval_hours": 12,
+    "enabled": true,
+    "description": "OpenMM 项目官方发布记录，仅收稳定版本，区分功能与修复。"
+  },
+  {
+    "id": "github-scipy",
+    "name": "GitHub · SciPy",
+    "url": "https://api.github.com/repos/scipy/scipy/releases?per_page=10",
+    "kind": "github",
+    "category": "开源技术",
+    "evidence": "repository",
+    "interval_hours": 12,
+    "enabled": true,
+    "description": "SciPy 官方发布记录，仅收稳定版本。此来源不需要付费API。"
+  }
+]

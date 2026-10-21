@@ -1,0 +1,384 @@
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"log"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	_ "modernc.org/sqlite"
+)
+
+const founderEmail = "1402272093@qq.com"
+const version = "1.0.0"
+
+var buildCommit = "dev"
+
+var categories = []string{"前沿科技", "人工智能", "生命科学", "物理", "化学", "地球与地理", "天文与空间", "材料科学", "开源技术"}
+
+type Tier struct {
+	Name       string `json:"name"`
+	MinPoints  int    `json:"min_points"`
+	Color      string `json:"color"`
+	DelayHours int    `json:"delay_hours"`
+}
+
+var tiers = []Tier{{"坚韧黑铁", 0, "#88909a", 72}, {"英勇青铜", 100, "#b5896b", 48}, {"荣耀白银", 300, "#c5ced6", 24}, {"华贵黄金", 700, "#e8b84b", 12}, {"璀璨铂金", 1400, "#75cacc", 6}, {"流光翡翠", 2500, "#59c595", 3}, {"璀璨钻石", 4000, "#80b3ed", 1}, {"超凡大师", 6500, "#b994eb", 0}, {"傲世宗师", 10000, "#eb8383", 0}, {"最强王者", 15000, "#f5d575", 0}}
+
+type Entitlements struct {
+	Subscriptions     bool `json:"subscriptions"`
+	SubscriptionLimit int  `json:"subscription_limit"`
+	DelayHours        int  `json:"delay_hours"`
+}
+
+type User struct {
+	ID                    int64        `json:"id"`
+	MembershipUntil       string       `json:"membership_until"`
+	IsMember              bool         `json:"is_member"`
+	Entitlements          Entitlements `json:"entitlements"`
+	Email                 string       `json:"email"`
+	Username              string       `json:"username"`
+	Role                  string       `json:"role"`
+	Points                int          `json:"points"`
+	Tier                  string       `json:"tier"`
+	TierIndex             int          `json:"tier_index"`
+	Credits               int          `json:"credits"`
+	WeeklyRemaining       int          `json:"weekly_remaining"`
+	Contributions         int          `json:"contributions"`
+	FeaturedContributions int          `json:"featured_contributions"`
+	RareContributions     int          `json:"rare_contributions"`
+	LastQualityAt         string       `json:"-"`
+	Disabled              bool         `json:"disabled"`
+	Week                  string       `json:"-"`
+	WeeklyUsed            int          `json:"-"`
+}
+type server struct {
+	db                     *sql.DB
+	billing                *billingService
+	web, origin, otpSecret string
+	secure                 bool
+	mailer                 func(context.Context, string, string) error
+	now                    func() time.Time
+}
+type scanner interface{ Scan(...any) error }
+
+func userScan(r scanner) (*User, error) {
+	u := &User{}
+	err := r.Scan(&u.ID, &u.Email, &u.Username, &u.Role, &u.Points, &u.Credits, &u.Week, &u.WeeklyUsed, &u.Contributions, &u.FeaturedContributions, &u.RareContributions, &u.LastQualityAt, &u.Disabled, &u.MembershipUntil)
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+const userCols = "id,email,username,role,points,credits,week_key,weekly_used,contributions,featured_contributions,rare_contributions,last_quality_at,disabled,membership_until"
+
+func (s *server) decorate(u *User) *User {
+	if u == nil {
+		return nil
+	}
+	u.TierIndex = 0
+	for i, t := range tiers {
+		if u.Points >= t.MinPoints {
+			u.TierIndex = i
+			u.Tier = t.Name
+		}
+	}
+	until, _ := time.Parse(time.RFC3339, u.MembershipUntil)
+	u.IsMember = until.After(s.now())
+	limit := 0
+	switch {
+	case u.TierIndex >= 7:
+		limit = 40
+	case u.TierIndex >= 6:
+		limit = 20
+	case u.TierIndex >= 4:
+		limit = 8
+	case u.TierIndex >= 3:
+		limit = 3
+	}
+	if u.IsMember {
+		limit = max(limit, 20)
+	}
+	if u.Role == "admin" {
+		limit = 40
+	}
+	delay := tiers[u.TierIndex].DelayHours
+	if u.Role == "admin" || u.Role == "reviewer" {
+		delay = 0
+	}
+	u.Entitlements = Entitlements{Subscriptions: limit > 0, SubscriptionLimit: limit, DelayHours: delay}
+	u.WeeklyRemaining = 3
+	if u.Week == weekKey(s.now()) {
+		u.WeeklyRemaining = max(0, 3-u.WeeklyUsed)
+	}
+	return u
+}
+func weekKey(t time.Time) string {
+	y, w := t.In(time.FixedZone("Asia/Shanghai", 8*3600)).ISOWeek()
+	return fmt.Sprintf("%d-%02d", y, w)
+}
+func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339) }
+func token(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b)
+}
+func digest(x string) string { h := sha256.Sum256([]byte(x)); return hex.EncodeToString(h[:]) }
+func send(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+func fail(w http.ResponseWriter, status int, msg string) {
+	send(w, status, map[string]any{"error": msg})
+}
+func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+		fail(w, 415, "请使用 JSON 请求")
+		return false
+	}
+	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 65536))
+	d.DisallowUnknownFields()
+	if err := d.Decode(v); err != nil {
+		fail(w, 400, "请求内容不正确")
+		return false
+	}
+	var extra any
+	if err := d.Decode(&extra); err != io.EOF {
+		fail(w, 400, "请求内容不正确")
+		return false
+	}
+	return true
+}
+func idParam(r *http.Request) int64 { i, _ := strconv.ParseInt(r.PathValue("id"), 10, 64); return i }
+func allowedURL(v string) bool {
+	u, e := url.Parse(v)
+	return e == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != "" && u.User == nil && !strings.ContainsAny(v, "\r\n")
+}
+func (s *server) current(r *http.Request) *User {
+	c, e := r.Cookie("infogap_session")
+	if e != nil || len(c.Value) != 64 {
+		return nil
+	}
+	u, e := userScan(s.db.QueryRow(`SELECT `+prefixCols("u.", userCols)+` FROM users u JOIN sessions se ON se.user_id=u.id WHERE se.token_hash=? AND se.expires_at>? AND u.disabled=0`, digest(c.Value), stamp(s.now())))
+	if e != nil {
+		return nil
+	}
+	return s.decorate(u)
+}
+func prefixCols(p, s string) string { return p + strings.ReplaceAll(s, ",", ","+p) }
+func (s *server) require(w http.ResponseWriter, r *http.Request) *User {
+	u := s.current(r)
+	if u == nil {
+		fail(w, 401, "请先通过邀请登录")
+	}
+	return u
+}
+func (s *server) staff(w http.ResponseWriter, r *http.Request, admin bool) *User {
+	u := s.require(w, r)
+	if u == nil {
+		return nil
+	}
+	if u.Role != "admin" && (admin || u.Role != "reviewer") {
+		fail(w, 403, "没有操作权限")
+		return nil
+	}
+	return u
+}
+func (s *server) stats(u *User) map[string]int {
+	m := map[string]int{"published": 0, "sources": 0, "members": 0, "pending": 0}
+	visible, args := s.visibilityClause(u)
+	n := 0
+	_ = s.db.QueryRow("SELECT COUNT(*) FROM gaps g WHERE g.status='published'"+visible, args...).Scan(&n)
+	m["published"] = n
+	for key, q := range map[string]string{"sources": "SELECT COUNT(*) FROM sources WHERE enabled=1", "members": "SELECT COUNT(*) FROM users WHERE disabled=0"} {
+		n = 0
+		_ = s.db.QueryRow(q).Scan(&n)
+		m[key] = n
+	}
+	if u != nil {
+		n = 0
+		if u.Role == "admin" || u.Role == "reviewer" {
+			_ = s.db.QueryRow("SELECT COUNT(*) FROM gaps WHERE status='pending'").Scan(&n)
+		} else {
+			_ = s.db.QueryRow("SELECT COUNT(*) FROM gaps WHERE status='pending' AND author_id=?", u.ID).Scan(&n)
+		}
+		m["pending"] = n
+	}
+	return m
+}
+func (s *server) bootstrap(w http.ResponseWriter, r *http.Request) {
+	_, err := smtpSettings()
+	u := s.current(r)
+	send(w, 200, map[string]any{"user": u, "stats": s.stats(u), "categories": categories, "tiers": tiers, "rules": map[string]int{"welcome": 10, "weekly": 3, "contribution": 100}, "mail_ready": err == nil})
+}
+func (s *server) routes() http.Handler {
+	m := http.NewServeMux()
+	m.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		if err := s.db.PingContext(r.Context()); err != nil {
+			fail(w, 503, "服务暂不可用")
+			return
+		}
+		send(w, 200, map[string]any{"ok": true, "version": version, "commit": buildCommit, "service": "infogap"})
+	})
+	m.HandleFunc("GET /api/bootstrap", s.bootstrap)
+	m.HandleFunc("POST /api/auth/code", s.authCode)
+	m.HandleFunc("POST /api/auth/verify", s.authVerify)
+	m.HandleFunc("POST /api/auth/logout", s.logout)
+	m.HandleFunc("GET /api/gaps", s.listGaps)
+	m.HandleFunc("GET /api/gaps/{id}", s.getGap)
+	m.HandleFunc("POST /api/gaps/{id}/unlock", s.unlock)
+	m.HandleFunc("POST /api/gaps/{id}/save", s.saveGap)
+	m.HandleFunc("POST /api/gaps/{id}/report", s.reportGap)
+	m.HandleFunc("POST /api/submissions", s.submit)
+	m.HandleFunc("GET /api/me/activity", s.activity)
+	m.HandleFunc("GET /api/subscriptions", s.listSubscriptions)
+	m.HandleFunc("POST /api/subscriptions", s.addSubscription)
+	m.HandleFunc("DELETE /api/subscriptions/{id}", s.deleteSubscription)
+	m.HandleFunc("GET /api/admin/overview", s.overview)
+	m.HandleFunc("POST /api/admin/invites", s.newInvite)
+	m.HandleFunc("POST /api/admin/invites/{id}/revoke", s.revokeInvite)
+	m.HandleFunc("POST /api/admin/review/{id}", s.review)
+	m.HandleFunc("POST /api/admin/gaps/{id}", s.editGap)
+	m.HandleFunc("POST /api/admin/users/{id}", s.manageUser)
+	m.HandleFunc("POST /api/admin/sources/{id}", s.manageSource)
+	s.billingRoutes(m)
+	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { fail(w, 404, "接口不存在") })
+	m.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" && r.Method != "HEAD" {
+			fail(w, 405, "不支持此操作")
+			return
+		}
+		p := filepath.Clean(r.URL.Path)
+		for _, part := range strings.Split(p, "/") {
+			if strings.HasPrefix(part, ".") {
+				http.NotFound(w, r)
+				return
+			}
+		}
+		f := filepath.Join(s.web, p)
+		info, err := os.Stat(f)
+		if err != nil || info.IsDir() {
+			if filepath.Ext(p) != "" {
+				http.NotFound(w, r)
+				return
+			}
+			f = filepath.Join(s.web, "index.html")
+		}
+		w.Header().Set("Cache-Control", "no-cache")
+		http.ServeFile(w, r, f)
+	})
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Cache-Control", "no-store")
+		}
+		paymentCallback := r.Method == "POST" && r.URL.Path == "/api/billing/notify/huifu"
+		if r.Method != "GET" && r.Method != "HEAD" && !paymentCallback {
+			o := r.Header.Get("Origin")
+			expected := s.origin
+			if expected == "" {
+				expected = "http://" + r.Host
+			}
+			if o != "" && o != expected {
+				fail(w, 403, "请求来源不匹配")
+				return
+			}
+			if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
+				fail(w, 403, "不允许跨站请求")
+				return
+			}
+			if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+				fail(w, 415, "请使用 JSON 请求")
+				return
+			}
+		}
+		m.ServeHTTP(w, r)
+	})
+}
+func newServer(dbPath, web, origin string) (*server, error) {
+	if dbPath != ":memory:" {
+		if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
+			return nil, err
+		}
+	}
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	if _, err = db.Exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=10000;` + schema); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err = migrateSchema(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	s := &server{db: db, web: web, origin: origin, secure: strings.HasPrefix(origin, "https://"), otpSecret: token(32), now: time.Now}
+	s.mailer = sendCodeMail
+	if err = InitBilling(s); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
+}
+func main() {
+	addr := flag.String("addr", "127.0.0.1:18869", "listen address")
+	db := flag.String("db", "state/infogap.sqlite", "database file")
+	web := flag.String("web", "web", "static directory")
+	flag.Parse()
+	s, err := newServer(*db, *web, os.Getenv("INFOGAP_PUBLIC_URL"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer s.db.Close()
+	h := &http.Server{Addr: *addr, Handler: s.routes(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 45 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = h.Shutdown(c)
+	}()
+	log.Printf("InfoGap %s listening on %s", version, *addr)
+	if err = h.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
+}
+func remoteIP(r *http.Request) string {
+	host, _, e := net.SplitHostPort(r.RemoteAddr)
+	if e != nil {
+		return r.RemoteAddr
+	}
+	if host == "127.0.0.1" || host == "::1" {
+		if ip := r.Header.Get("X-Real-IP"); net.ParseIP(ip) != nil {
+			return ip
+		}
+	}
+	return host
+}

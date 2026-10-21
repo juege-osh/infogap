@@ -1,0 +1,19 @@
+[Unit]
+Description=Collect official science sources for InfoGap review
+After=network-online.target infogap-osh.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=nobody
+Group=nobody
+WorkingDirectory=/opt/infogap-osh/current
+ExecStart=/usr/bin/python3 /opt/infogap-osh/current/scripts/collect.py --db /var/lib/infogap-osh/infogap.sqlite --sources /opt/infogap-osh/current/data/sources.json
+ReadWritePaths=/var/lib/infogap-osh
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+MemoryMax=192M
+TimeoutStartSec=15min

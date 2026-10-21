@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0d10">
+  <meta name="description" content="InfoGap 前沿情报站，关注科学研究、技术进展与开源发现。邀请加入，用可靠贡献交换有价值的信息。">
+  <title>InfoGap · 前沿情报站</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/vendor/qrcode.min.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到正文</a>
+  <header class="topbar">
+    <button class="icon-btn menu-toggle" id="menu-toggle" aria-label="打开导航" aria-expanded="false"></button>
+    <a class="brand" href="#feed" aria-label="InfoGap 首页"><span class="brand-mark">ig<span>.</span></span><span>InfoGap<small>前沿情报站</small></span></a>
+    <form class="top-search" id="search-form" role="search"><span id="search-icon"></span><input id="search-input" type="search" maxlength="100" placeholder="搜索发现、关键词或研究方向" aria-label="搜索情报" autocomplete="off"><kbd>⌘ K</kbd></form>
+    <div class="top-actions" id="top-actions"></div>
+    <button class="icon-btn" id="theme-toggle" aria-label="切换明暗主题"></button>
+  </header>
+  <div id="mobile-timeliness" class="mobile-timeliness" hidden></div>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar" aria-label="主导航"></aside>
+    <button class="sidebar-scrim" id="sidebar-scrim" aria-label="关闭导航" hidden></button>
+    <main id="main" class="main" tabindex="-1"><div class="loading-state"><span class="spinner"></span><p>正在整理你的情报流…</p></div></main>
+    <aside class="rail" id="rail" aria-label="成员信息与阅读指南"></aside>
+  </div>
+  <dialog id="dialog" class="dialog"><div id="dialog-content"></div></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

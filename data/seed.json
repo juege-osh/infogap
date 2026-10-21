@@ -1,0 +1,172 @@
+[
+  {
+    "title": "把蛋白质剪刀按目标设计：Nature 验证了可编程金属蛋白酶",
+    "summary": "135个设计中，36%能在预设位置切开对应肽底物。研究提供代码与数据，但距离人体治疗仍有明确边界。",
+    "body": "## 核心进展\n\n研究者用RFdiffusion设计带锌活性位点的蛋白质，并安排底物结合口袋。在**135个测试设计中，36%**表现出针对目标肽键的切割活性；进一步调整少量位点可提高催化效率。\n\n## 为什么值得关注\n\n这给蛋白质工程团队提供了从催化几何约束出发、设计特定切割功能的路线。原文列出数据和代码入口，适合先核对设计条件，再评估能否复用于自己的底物。\n\n## 证据与边界\n\n这是2026年10月14日发表于Nature的研究论文。本文依据公开摘要、数据声明和出版记录整理，未读取订阅全文。底物切割与细胞调控实验不等于已证明临床疗效，靶向性和体内表现还需各自验证。\n\n## 原始来源\n\nComputational design of metalloproteases\n[Nature原文](https://www.nature.com/articles/s41586-026-11167-2)\n[数据与代码](https://doi.org/10.5281/zenodo.22654831)",
+    "category": "生命科学",
+    "level": "featured",
+    "evidence": "peer_reviewed",
+    "source_name": "Nature",
+    "source_url": "https://www.nature.com/articles/s41586-026-11167-2",
+    "published_at": "2026-10-14T00:00:00Z",
+    "tags": [
+      "蛋白质设计",
+      "合成生物学",
+      "可复现资料"
+    ],
+    "review_note": "2026-10-21核验Nature公开摘要、出版/审稿记录及数据代码声明；未读取订阅全文。发布日期精度为日。初始编辑内容，无作者贡献奖励。"
+  },
+  {
+    "title": "电解水催化剂不一定越热越好：接近0℃出现寿命与活性的折中点",
+    "summary": "Nature Chemistry在二氧化锰析氧体系中发现，降温能更强地抑制催化剂损耗；继续降到零下，趋势又发生改变。",
+    "body": "## 核心进展\n\n研究比较了二氧化锰催化水氧化与高锰酸根形成随温度的变化。接近水的冰点时，催化剂降解被压制得比析氧反应更明显；再继续冷却到零下，降解反而加快，**最佳温区因此出现在0℃附近**。\n\n## 为什么值得关注\n\n做电催化的人可以把温度当作调节稳定性的实验变量，而不只追求反应速率。研究公开了图表原始数据，便于检查不同温度下的活性、寿命和电解液状态。\n\n## 证据与边界\n\n论文于2026年10月21日发表于Nature Chemistry。结论针对文中二氧化锰、电解液和实验条件，不能推广为所有电解槽都应低温运行；系统制冷能耗与整体效率仍要单独计算。本条依据公开摘要和数据声明整理。\n\n## 原始来源\n\nCooling water to near freezing breaks the activity–stability trade-off of water oxidation electrocatalysis\n[Nature Chemistry原文](https://www.nature.com/articles/s41557-026-02274-8)\n[数据](https://doi.org/10.6084/m9.figshare.30539429)",
+    "category": "化学",
+    "level": "featured",
+    "evidence": "peer_reviewed",
+    "source_name": "Nature Chemistry",
+    "source_url": "https://www.nature.com/articles/s41557-026-02274-8",
+    "published_at": "2026-10-21T00:00:00Z",
+    "tags": [
+      "电催化",
+      "能源材料",
+      "实验设计"
+    ],
+    "review_note": "2026-10-21核验期刊公开摘要、日期、审稿信息与数据声明；未读取订阅全文。发布日期精度为日。"
+  },
+  {
+    "title": "南极冰盖风险还取决于升温速度：地壳回弹可能来不及稳定冰层",
+    "summary": "Nature Geoscience的耦合模型提示，部分东南极盆地可能在达到静态温度阈值之前，因升温过快进入持续退缩。",
+    "body": "## 核心进展\n\n研究将冰盖模型与冰后均衡调整模型耦合，并改变地幔黏度，测试冰层变薄和基岩抬升之间的时间差。结果显示，部分东南极盆地的稳定反馈可能赶不上外部变暖，发生**由变化速率触发的持续退缩**。\n\n## 为什么值得关注\n\n做海平面研究时，仅比较最终升温幅度可能漏掉风险。论文给出了模型代码和绘图资料入口，可进一步检查不同地幔设定下，阈值和退缩速率如何改变。\n\n## 证据与边界\n\n这是2026年10月20日发表的同行评审模型研究，使用理想化升温情景，并非对某一年海平面的直接预测。不同南极区域结果不同，文中西南极的速率诱发效应较弱；地幔黏度等不确定性会影响结果。\n\n## 原始来源\n\n[Nature Geoscience原文](https://www.nature.com/articles/s41561-026-02117-8)\n[绘图代码](https://github.com/JanJereczek/rtip-ais)\n[数据](https://doi.org/10.5281/zenodo.21935199)",
+    "category": "地球与地理",
+    "level": "featured",
+    "evidence": "peer_reviewed",
+    "source_name": "Nature Geoscience",
+    "source_url": "https://www.nature.com/articles/s41561-026-02117-8",
+    "published_at": "2026-10-20T00:00:00Z",
+    "tags": [
+      "南极",
+      "海平面",
+      "气候模型"
+    ],
+    "review_note": "2026-10-21核验开放研究摘要、主要方法、限制、出版记录及代码数据声明；日期精度为日，未将理想化情景当实况预报。"
+  },
+  {
+    "title": "植物如何识别壳聚糖：Science找到协同启动免疫的一对受体",
+    "summary": "OsFID1负责结合壳聚糖，并与OsFID2协同传递信号。研究把识别机制与作物抗真菌实验连接起来。",
+    "body": "## 核心进展\n\n研究识别出能够结合壳聚糖的**OsFID1**，以及与它协作的膜受体OsFID2。两者组成的复合物参与植物免疫启动。论文报告，在小麦和玉米中表达OsFID1后，测试的抗真菌能力有所提升，未观察到相应的生长代价。\n\n## 为什么值得关注\n\n这为抗病育种提供了可验证的分子靶点。做作物保护研究时，可从受体结合、信号激活及不同病原的挑战实验三个环节检查复现条件。\n\n## 证据与边界\n\nScience出版日期为2026年10月15日。本文交叉核对出版社RSS、出版社提交的摘要记录以及研究团队所在实验室公告；期刊正文访问受限。实验抗性不能直接换算成田间增产，也不能据此认为全部真菌病害都已解决。\n\n## 原始来源\n\n[Science原文](https://www.science.org/doi/10.1126/science.ady7647)\n[论文摘要记录](https://pubmed.ncbi.nlm.nih.gov/42879563/)\n[研究机构公告](https://sklafb.fafu.edu.cn/info/1037/6821.htm)",
+    "category": "生命科学",
+    "level": "featured",
+    "evidence": "peer_reviewed",
+    "source_name": "Science",
+    "source_url": "https://www.science.org/doi/10.1126/science.ady7647",
+    "published_at": "2026-10-15T00:00:00Z",
+    "tags": [
+      "植物免疫",
+      "作物育种",
+      "真菌抗性"
+    ],
+    "review_note": "2026-10-21核验Science RSS、Crossref出版商登记摘要、PubMed论文摘要与研究机构公告；未读取Science全文。发表日期精度为日。"
+  },
+  {
+    "title": "二维莫尔材料出现可用栅压调节的手性自旋模式",
+    "summary": "Science研究在近零扭角的WSe₂/WS₂双层中，用拉曼光谱观察集体自旋激发，并通过填充变化调节其行为。",
+    "body": "## 核心进展\n\n研究在近零扭角WSe₂/WS₂双层的自旋轨道分裂能带之间发现**手性自旋模式**。拉曼光谱出现明显共振；改变载流子填充时，该模式的表现随之变化。作者还通过塞曼效应检验了自旋翻转特征。\n\n## 为什么值得关注\n\n研究二维材料和量子多体效应的人，可把该结构视为探测低能集体激发的平台，特别关注栅压、填充和光谱对称性之间的对应关系。\n\n## 证据与边界\n\n正式论文于2026年10月15日发表于Science；同题作者预印本早在2025年已上传。本条核对了正式出版记录及论文摘要，没有把旧预印本误当成本周首次发现。结果属于特定材料体系的物理实验，尚不能直接推出可用的量子计算器件。\n\n## 原始来源\n\n[Science原文](https://www.science.org/doi/10.1126/science.adq6530)\n[正式论文摘要](https://pubmed.ncbi.nlm.nih.gov/42879561/)\n[作者预印本](https://arxiv.org/abs/2509.16511)",
+    "category": "物理",
+    "level": "featured",
+    "evidence": "peer_reviewed",
+    "source_name": "Science",
+    "source_url": "https://www.science.org/doi/10.1126/science.adq6530",
+    "published_at": "2026-10-15T00:00:00Z",
+    "tags": [
+      "二维材料",
+      "自旋",
+      "凝聚态物理"
+    ],
+    "review_note": "2026-10-21核验Science目录、Crossref出版商登记摘要、PubMed与作者arXiv预印本；未读取正式全文。出版日期精度为日。"
+  },
+  {
+    "title": "天王星和海王星可能存在氨雨？新预印本给出高压相分离计算",
+    "summary": "研究用机器学习原子势模拟氨与氢的混合状态，提出部分冰巨星内部条件可能落在相分离区域。",
+    "body": "## 核心进展\n\n作者模拟500至4000 K、0.1至100 GPa范围内氨与氢的相平衡，绘制混合和分离的边界，并把它与已有行星温度剖面比较。结果提示，天王星、海王星的部分条件可能允许氨从富氢环境中分离。\n\n## 为什么值得关注\n\n对行星内部结构研究而言，物质能否混溶会影响组成分层和热演化。值得进一步检查机器学习势的训练范围、相边界误差，以及行星温度剖面假设。\n\n## 证据与边界\n\n这是2026年10月19日提交到arXiv的预印本，**尚不能视为已经同行评审**。氨雨是数值模拟与行星模型结合提出的可能性，不是探测器直接看到的现象。本条依据作者摘要整理。\n\n## 原始来源\n\nAmmonia-Hydrogen Phase Equilibria in Planetary Envelopes from First-Principles-Based Machine-Learning Molecular Dynamics\n[arXiv · 行星科学/化学物理原文](https://arxiv.org/abs/2610.27136)",
+    "category": "天文与空间",
+    "level": "ordinary",
+    "evidence": "preprint",
+    "source_name": "arXiv · 行星科学/化学物理",
+    "source_url": "https://arxiv.org/abs/2610.27136",
+    "published_at": "2026-10-19T18:33:47Z",
+    "tags": [
+      "预印本",
+      "行星内部",
+      "分子模拟"
+    ],
+    "review_note": "2026-10-21核验作者arXiv摘要及v1提交时间；未读完整20页论文，明确保留未审稿与模型推断标签。"
+  },
+  {
+    "title": "观察厄尔尼诺多了一条线索：NASA把海温、海面高度与海色放在一起看",
+    "summary": "NASA公布2025与2026年的海洋观测对照。PACE海色资料让浮游植物变化进入这次厄尔尼诺的观测组合。",
+    "body": "## 核心进展\n\nNASA于10月15日发布厄尔尼诺观测说明，把海面高度、海表温度和海色数据放在同一时间框架比较。文章解释，暖水和上升流变化会影响营养供应，并在浮游植物及海色中留下信号。\n\n## 为什么值得关注\n\n做海洋科普或地球观测研究时，可沿原文进入官方可视化资料，比较不同传感器观测的是哪一个物理或生态量，避免只用一张海温图解释全部影响。\n\n## 证据与边界\n\n来源是**NASA官方观测说明**，不是一项新的同行评审论文。海色并不直接等同于鱼类数量，局地影响也不能由全球气候现象直接推定；实际分析应保留数据产品、时段与空间范围。\n\n## 原始来源\n\nNASA Satellites Observe Historic 2026 El Niño\n[NASA原文](https://science.nasa.gov/earth/nasa-satellites-observe-historic-2026-el-nino/)",
+    "category": "地球与地理",
+    "level": "ordinary",
+    "evidence": "official",
+    "source_name": "NASA",
+    "source_url": "https://science.nasa.gov/earth/nasa-satellites-observe-historic-2026-el-nino/",
+    "published_at": "2026-10-15T00:00:00Z",
+    "tags": [
+      "厄尔尼诺",
+      "遥感",
+      "海洋"
+    ],
+    "review_note": "2026-10-21阅读NASA官方说明，核验发布日期及三类观测资料；未把新闻稿标成同行评审论文。日期精度为日。"
+  },
+  {
+    "title": "拍深空星系也能发现新彗星：Euclid的移动天体检测找到C/2026 S1",
+    "summary": "ESA报告Euclid在9月影像中发现此前未知的彗星，小行星中心于10月8日确认，官方于10月19日公布。",
+    "body": "## 核心进展\n\n研究人员用移动天体检测软件，在Euclid于9月16日至24日拍摄的影像里找出移动痕迹，再预测其位置并在其他影像组中核对。后续观测和目录比对后，小行星中心确认该天体为**C/2026 S1（Euclid）**。\n\n## 为什么值得关注\n\n这说明为深空巡天设计的数据，还可以支持太阳系小天体发现。做观测数据分析时，跨帧运动检测和快速向地面观测者发出线索，可能比只看单幅图更有价值。\n\n## 证据与边界\n\n来源为ESA于2026年10月19日发布的任务公告，确认日期为10月8日。文中提到这类发现可能帮助未来彗星任务寻找目标，但没有宣布这颗彗星已被选为任务目标。\n\n## 原始来源\n\n[ESA原文](https://www.esa.int/Science_Exploration/Space_Science/Euclid/Euclid_discovers_new_comet)",
+    "category": "天文与空间",
+    "level": "ordinary",
+    "evidence": "official",
+    "source_name": "ESA",
+    "source_url": "https://www.esa.int/Science_Exploration/Space_Science/Euclid/Euclid_discovers_new_comet",
+    "published_at": "2026-10-19T00:00:00Z",
+    "tags": [
+      "Euclid",
+      "彗星",
+      "观测数据"
+    ],
+    "review_note": "2026-10-21核验ESA官方原文及发现、确认和公告三个日期；官方公告不标记为期刊论文。日期精度为日。"
+  },
+  {
+    "title": "OpenMM 8.6把多热力学状态采样纳入主库，分子模拟工作流可少搭一层",
+    "summary": "8.6.0增加副本交换和扩展系综采样器，随后8.6.1修复PythonForce等问题。升级应同时查看功能与补丁说明。",
+    "body": "## 核心进展\n\nOpenMM 8.6.0加入**ReplicaExchangeSampler与ExpandedEnsembleSampler**，可采样温度、压力或哈密顿量不同的热力学状态。它还允许PythonForce只作用于部分粒子，并改进频繁改变全局参数时的长程校正缓存。\n\n## 为什么值得关注\n\n做增强采样、自由能或ML/MM研究的人，可以评估能否把原来依赖外部组装的部分流程迁到主库接口。先在小体系复现现有结果，再测自己的采样效率和收敛性。\n\n## 证据与边界\n\n依据项目官方发布说明整理。8.6.0发布于2026年8月19日，8.6.1于9月11日发布并包含多项修复；这不是10月刚发布的新版本。新采样器不保证任意体系自动收敛，性能改善也需要在实际硬件与模型上测量。\n\n## 原始来源\n\n[GitHub · OpenMM原文](https://github.com/openmm/openmm/releases/tag/8.6.0)\n[后续修复](https://github.com/openmm/openmm/releases/tag/8.6.1)",
+    "category": "化学",
+    "level": "ordinary",
+    "evidence": "repository",
+    "source_name": "GitHub · OpenMM",
+    "source_url": "https://github.com/openmm/openmm/releases/tag/8.6.0",
+    "published_at": "2026-08-19T17:44:53Z",
+    "tags": [
+      "分子动力学",
+      "科研软件",
+      "增强采样"
+    ],
+    "review_note": "2026-10-21核验官方GitHub Releases API与发布说明，记录原始时间并检查8.6.1补丁；未安装或实测性能。"
+  },
+  {
+    "title": "SciPy 1.18的批量线性代数与Array API更新，值得检查现有科研脚本",
+    "summary": "多个线性代数例程的批量循环移到编译实现，统计函数扩展数组后端支持；是否提速取决于实际数据和构建方式。",
+    "body": "## 核心进展\n\nSciPy 1.18.0改进了多项批量线性代数运算，并扩展Array API支持。版本说明还加入Whittaker–Henderson平滑方法，以及**实验性的无Fortran构建选项**。\n\n## 为什么值得关注\n\n如果研究脚本在Python里逐个处理小矩阵，可先检查函数是否支持直接传入批量维度，再用自己的数据对比耗时和数值结果。需要JAX或其他数组后端的工作流，应逐函数核对支持范围。\n\n## 证据与边界\n\n依据SciPy官方发布说明整理，1.18.0发布于2026年6月19日，后续1.18.1是修复版本。Array API扩展不代表所有SciPy函数都能在GPU上运行；无Fortran构建在该版本仍属实验选项。本条没有做性能实测。\n\n## 原始来源\n\n[GitHub · SciPy原文](https://github.com/scipy/scipy/releases/tag/v1.18.0)\n[后续修复](https://github.com/scipy/scipy/releases/tag/v1.18.1)",
+    "category": "开源技术",
+    "level": "ordinary",
+    "evidence": "repository",
+    "source_name": "GitHub · SciPy",
+    "source_url": "https://github.com/scipy/scipy/releases/tag/v1.18.0",
+    "published_at": "2026-06-19T15:21:32Z",
+    "tags": [
+      "科学计算",
+      "数值方法",
+      "性能优化"
+    ],
+    "review_note": "2026-10-21核验官方GitHub Releases API与SciPy发布记录；未安装、运行性能测试或验证实验构建。"
+  }
+]

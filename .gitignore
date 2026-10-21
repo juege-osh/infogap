@@ -1,0 +1,13 @@
+._*
+.DS_Store
+.env
+*.env
+*.sqlite*
+*.db*
+/app
+/bin/
+/state/
+/evidence/
+__pycache__/
+*.pyc
+*.pyo
