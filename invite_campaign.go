@@ -33,6 +33,7 @@ CREATE INDEX IF NOT EXISTS invite_campaign_awards_time ON invite_campaign_awards
 `
 
 type inviteCreateInput struct {
+	Permanent     bool     `json:"permanent"`
 	MaxUses       int      `json:"max_uses"`
 	Days          int      `json:"days"`
 	Emails        []string `json:"emails"`
@@ -40,6 +41,10 @@ type inviteCreateInput struct {
 	RewardDays    int      `json:"reward_days"`
 	RewardCredits int      `json:"reward_credits"`
 }
+
+// Permanent invitations have no time/use cap, but active is always required.
+// Keep issuance and transactional consumption on the same predicate.
+const usableInviteSQL = "active=1 AND (permanent=1 OR (uses<max_uses AND expires_at>?))"
 
 const inviteCreateBodyLimit = 320 * 1024
 
@@ -177,7 +182,8 @@ func (s *server) getInviteCampaign(w http.ResponseWriter, r *http.Request) {
 	id := idParam(r)
 	var rank string
 	var days, credits int
-	err := s.db.QueryRow("SELECT reward_rank,reward_days,reward_credits FROM invite_campaigns WHERE invite_id=?", id).Scan(&rank, &days, &credits)
+	var permanent bool
+	err := s.db.QueryRow("SELECT c.reward_rank,c.reward_days,c.reward_credits,i.permanent FROM invite_campaigns c JOIN invites i ON i.id=c.invite_id WHERE c.invite_id=?", id).Scan(&rank, &days, &credits, &permanent)
 	if err == sql.ErrNoRows {
 		fail(w, 404, "此邀请码没有活动奖励")
 		return
@@ -209,9 +215,9 @@ func (s *server) getInviteCampaign(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "读取活动失败")
 		return
 	}
-	send(w, 200, map[string]any{"id": id, "reward_rank": rank, "reward_days": days, "reward_credits": credits, "email_count": len(emails), "awarded_count": awarded, "emails": emails})
+	send(w, 200, map[string]any{"id": id, "permanent": permanent, "reward_rank": rank, "reward_days": days, "reward_credits": credits, "email_count": len(emails), "awarded_count": awarded, "emails": emails})
 }
 
 func campaignAuditNote(in inviteCreateInput) string {
-	return fmt.Sprintf("活动邀请：名单 %d 人，青铜 %d 天，一次性永久积分 %d", len(in.Emails), in.RewardDays, in.RewardCredits)
+	return fmt.Sprintf("活动邀请：名单 %d 人，青铜 %d 天，一次性永久积分 %d，长期邀请码 %t", len(in.Emails), in.RewardDays, in.RewardCredits, in.Permanent)
 }

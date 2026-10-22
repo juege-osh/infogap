@@ -60,7 +60,7 @@ func (s *server) overview(w http.ResponseWriter, r *http.Request) {
 		for _, user := range users {
 			s.decorateWithRank(user)
 		}
-		rows, e = s.db.Query("SELECT i.id,CASE WHEN c.invite_id IS NULL THEN i.code ELSE '' END,i.max_uses,i.uses,i.expires_at,i.active,c.invite_id IS NOT NULL,(SELECT COUNT(*) FROM invite_campaign_members cm WHERE cm.invite_id=i.id) FROM invites i LEFT JOIN invite_campaigns c ON c.invite_id=i.id ORDER BY i.id DESC LIMIT 100")
+		rows, e = s.db.Query("SELECT i.id,CASE WHEN c.invite_id IS NULL AND i.permanent=0 THEN i.code ELSE '' END,i.max_uses,i.uses,i.expires_at,i.active,i.permanent,c.invite_id IS NOT NULL,(SELECT COUNT(*) FROM invite_campaign_members cm WHERE cm.invite_id=i.id) FROM invites i LEFT JOIN invite_campaigns c ON c.invite_id=i.id ORDER BY i.id DESC LIMIT 100")
 		if e != nil {
 			fail(w, 500, "读取失败")
 			return
@@ -69,9 +69,9 @@ func (s *server) overview(w http.ResponseWriter, r *http.Request) {
 			var id int64
 			var code, exp string
 			var maxuses, uses, campaignEmailCount int
-			var active, campaign bool
-			if rows.Scan(&id, &code, &maxuses, &uses, &exp, &active, &campaign, &campaignEmailCount) == nil {
-				invites = append(invites, map[string]any{"id": id, "code": code, "max_uses": maxuses, "uses": uses, "expires_at": exp, "active": active, "campaign": campaign, "campaign_email_count": campaignEmailCount})
+			var active, permanent, campaign bool
+			if rows.Scan(&id, &code, &maxuses, &uses, &exp, &active, &permanent, &campaign, &campaignEmailCount) == nil {
+				invites = append(invites, map[string]any{"id": id, "code": code, "max_uses": maxuses, "uses": uses, "expires_at": exp, "active": active, "permanent": permanent, "campaign": campaign, "campaign_email_count": campaignEmailCount})
 			}
 		}
 		rows.Close()
@@ -133,15 +133,19 @@ func (s *server) newInvite(w http.ResponseWriter, r *http.Request) {
 	if !decodeInviteCreate(w, r, &in) {
 		return
 	}
-	if in.MaxUses == 0 {
-		in.MaxUses = 1
-	}
-	if in.Days == 0 {
-		in.Days = 7
-	}
-	if in.MaxUses < 1 || in.MaxUses > 100 || in.Days < 1 || in.Days > 90 {
-		fail(w, 400, "使用次数限 1–100，期限限 1–90 天")
-		return
+	if in.Permanent {
+		in.MaxUses, in.Days = 0, 0
+	} else {
+		if in.MaxUses == 0 {
+			in.MaxUses = 1
+		}
+		if in.Days == 0 {
+			in.Days = 7
+		}
+		if in.MaxUses < 1 || in.MaxUses > 100 || in.Days < 1 || in.Days > 90 {
+			fail(w, 400, "使用次数限 1–100，期限限 1–90 天")
+			return
+		}
 	}
 	campaign, e := in.normalizeCampaign()
 	if e != nil {
@@ -149,14 +153,17 @@ func (s *server) newInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	code := strings.ToUpper(token(8))
-	expires := stamp(s.now().Add(time.Duration(in.Days) * 24 * time.Hour))
+	expires := ""
+	if !in.Permanent {
+		expires = stamp(s.now().Add(time.Duration(in.Days) * 24 * time.Hour))
+	}
 	tx, e := s.db.BeginTx(r.Context(), nil)
 	if e != nil {
 		fail(w, 500, "创建失败")
 		return
 	}
 	defer tx.Rollback()
-	result, e := tx.Exec("INSERT INTO invites(code,max_uses,expires_at,created_by,created_at) VALUES(?,?,?,?,?)", code, in.MaxUses, expires, u.ID, stamp(s.now()))
+	result, e := tx.Exec("INSERT INTO invites(code,max_uses,expires_at,permanent,created_by,created_at) VALUES(?,?,?,?,?,?)", code, in.MaxUses, expires, in.Permanent, u.ID, stamp(s.now()))
 	if e != nil {
 		fail(w, 500, "创建失败")
 		return
@@ -172,7 +179,7 @@ func (s *server) newInvite(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "创建失败")
 		return
 	}
-	out := map[string]any{"id": id, "code": code, "expires_at": expires}
+	out := map[string]any{"id": id, "code": code, "expires_at": expires, "permanent": in.Permanent}
 	if campaign {
 		out["campaign"] = map[string]any{"reward_rank": in.RewardRank, "reward_days": in.RewardDays, "reward_credits": in.RewardCredits, "email_count": len(in.Emails)}
 	}

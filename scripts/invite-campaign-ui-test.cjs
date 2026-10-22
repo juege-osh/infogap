@@ -38,9 +38,9 @@ context.apiFixture = async (url, options) => {
   if (options) return { id: 12, code: 'ONCE-ONLY-CODE', expires_at: '2026-10-29T01:00:00Z', campaign };
   return campaign;
 };
-function makeForm(enabled, emails) {
+function makeForm(enabled, emails, permanent = false) {
   const button = element('#submit-button'); button.disabled = false;
-  return { id: 'invite-form', elements: { max_uses: { value: '25' }, days: { value: '7' }, campaign: { checked: enabled }, emails: { value: emails } },
+  return { id: 'invite-form', elements: { max_uses: { value: '25' }, days: { value: '7' }, permanent: { checked: permanent }, campaign: { checked: enabled }, emails: { value: emails } },
     querySelector: () => button };
 }
 function clickTarget(selector, item) { return { closest: target => target === selector ? item : null }; }
@@ -63,11 +63,25 @@ function clickTarget(selector, item) { return { closest: target => target === se
   toggle.checked = false;handlers.change({ target: toggle });
   assert.equal(element('#invite-campaign-fields').hidden, true);
   assert.equal(element('#invite-campaign-fields').disabled, true);
+  handlers.change({ target: { id: 'invite-permanent', checked: true } });
+  assert.equal(element('#invite-uses').disabled, true);
+  assert.equal(element('#invite-days').disabled, true);
+  assert(element('#invite-limit-note').textContent.includes('名单外成员也可持续注册'));
+  assert(element('#invite-limit-note').textContent.includes('奖励仍只发给名单内首次注册'));
+  handlers.change({ target: { id: 'invite-permanent', checked: false } });
+  assert.equal(element('#invite-uses').disabled, false);
+  assert.equal(element('#invite-days').disabled, false);
+  assert(element('#invite-limit-note').textContent.includes('最多 100 次'));
 
   context.form = makeForm(false, 'hidden@example.test');
   assert.deepEqual(plain(run('inviteRequest(form)')), { max_uses: 25, days: 7 }, 'ordinary invite must omit reward fields and hidden emails');
   context.form = makeForm(true, 'ONE@example.test\ntwo@example.test\none@example.test');
   assert.deepEqual(plain(run('inviteRequest(form)')), { max_uses: 25, days: 7, emails: ['one@example.test', 'two@example.test'], reward_rank: 'bronze', reward_days: 30, reward_credits: 1000 });
+  context.form = makeForm(false, 'hidden@example.test', true);
+  context.form.elements.max_uses.value = '0';context.form.elements.days.value = '';
+  assert.deepEqual(plain(run('inviteRequest(form)')), { permanent: true }, 'fixed invites must omit limits and inactive rewards');
+  context.form = makeForm(true, 'ONE@example.test\none@example.test', true);
+  assert.deepEqual(plain(run('inviteRequest(form)')), { permanent: true, emails: ['one@example.test'], reward_rank: 'bronze', reward_days: 30, reward_credits: 1000 });
   for (const bad of ['', 'bad', '<x@example.test>', 'a@example.test,b@example.test']) {
     context.form = makeForm(true, bad);assert.throws(() => run('inviteRequest(form)'));
   }
@@ -86,10 +100,22 @@ function clickTarget(selector, item) { return { closest: target => target === se
   assert(html.includes('已有账号不自动补发'));
   assert(html.includes('名单内外共用，最多 100 次'));
   assert(html.includes('name="campaign" type="checkbox"'));
+  assert(html.includes('固定邀请码（长期有效）'));
+  const permanentInput = html.match(/<input\b[^>]*name="permanent"[^>]*>/)[0];
+  assert(!/\schecked(?:\s|>)/.test(permanentInput), 'permanent must default off');
   assert(html.includes('class="invite-campaign-fields" disabled hidden'));
   assert(html.includes('id="invite-email-count" class="hint" aria-live="polite"'));
   for (const secret of ['OLD-PLAIN-CODE', 'ACCIDENTAL-CAMPAIGN-CODE', 'one@example.test', 'two@example.test']) assert(!html.includes(secret), `history leaked ${secret}`);
   assert.equal(requests.length, 0, 'do not preload the private allowlist');
+  context.fixed = { id: 10, permanent: true, max_uses: 99999999, expires_at: '9999-12-31', uses: 101, active: true };
+  const fixedCard = run('adminInviteCard(fixed)');
+  assert(fixedCard.includes('长期有效 · 不限次数 · 已用 101 次'));
+  assert(!fixedCard.includes('99999999') && !fixedCard.includes('9999.12.31'));
+  assert(fixedCard.includes('data-revoke="10"'));
+  context.fixed.active = false;
+  assert(run('adminInviteCard(fixed)').includes('已停用'));
+  assert(!run('adminInviteCard(fixed)').includes('data-revoke'));
+  assert(run('inviteCampaignDetails({...campaign,permanent:true})').includes('名单外也可注册，奖励仍仅限指定邮箱'));
 
   const campaignButton = element('#campaign-button');campaignButton.dataset = { inviteCampaign: '9' };
   const panel = element('#invite-campaign-9');panel.hidden = true;
@@ -162,6 +188,12 @@ function clickTarget(selector, item) { return { closest: target => target === se
   assert(element('#new-invite').innerHTML.includes('ORDINARY-CODE'));
   assert(!element('#new-invite').innerHTML.includes('奖励名单'));
   assert.equal(run('state.admin.invites[0].campaign'), false);
+  context.form = makeForm(true, 'fixed@example.test', true);
+  await handlers.submit({ target: context.form, preventDefault() {} });
+  assert.deepEqual(JSON.parse(requests.at(-1).options.body), { permanent: true, emails: ['fixed@example.test'], reward_rank: 'bronze', reward_days: 30, reward_credits: 1000 });
+  assert.equal(run('state.admin.invites[0].permanent'), true, 'creation fallback must retain fixed mode before overview reload');
+  assert(element('#new-invite').innerHTML.includes('长期有效 · 不限次数，直到站长停用'));
+  assert(!element('#admin-content').innerHTML.includes('时间待核对 到期'), 'fixed history must not render an empty expiry as an unknown date');
   run('renderRules()');
   assert(element('#main').innerHTML.includes('永久积分初始为 0，每日赠送 1 额度'));
   assert(!element('#main').innerHTML.includes('10 长期额度'));
@@ -171,5 +203,5 @@ function clickTarget(selector, item) { return { closest: target => target === se
   assert(css.includes('.invite-campaign-fields[hidden],.invite-campaign-panel[hidden]{display:none}'));
   assert(css.includes('.invite-campaign-table td{overflow-wrap:anywhere'));
   assert(css.includes('.invite-settings input,.invite-campaign-fields textarea{font-size:16px}'));
-  console.log('PASS: admin-only opt-in campaigns, normalized/deduplicated 1–1000 emails, fixed rewards, ordinary invites unchanged, one-time code receipt, lazy private statistics, close/role/route privacy guards, escaped data, safe copy, retained failures and mobile form styles.');
+  console.log('PASS: admin-only campaigns, deduplicated 1–1000 emails, fixed/limited invitation modes and payloads, unlimited display without sentinel dates/counts, fixed rewards, one-time code receipt, private lazy statistics and guards, escaped data, safe copy, retained failures and mobile form styles.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -61,7 +61,7 @@ func (s *server) authCode(w http.ResponseWriter, r *http.Request) {
 	}
 	if id == 0 && in.Email != founderEmail {
 		var n int
-		_ = s.db.QueryRow("SELECT COUNT(*) FROM invites WHERE code=? AND active=1 AND uses<max_uses AND expires_at>?", in.Invite, stamp(s.now())).Scan(&n)
+		_ = s.db.QueryRow("SELECT COUNT(*) FROM invites WHERE code=? AND "+usableInviteSQL, in.Invite, stamp(s.now())).Scan(&n)
 		if n == 0 {
 			fail(w, 403, "首次加入需要有效邀请码")
 			return
@@ -162,7 +162,7 @@ func (s *server) authVerify(w http.ResponseWriter, r *http.Request) {
 		}
 		var inviteID int64
 		if in.Email != founderEmail {
-			res, e := tx.Exec("UPDATE invites SET uses=uses+1 WHERE code=? AND active=1 AND uses<max_uses AND expires_at>?", in.Invite, stamp(now))
+			res, e := tx.Exec("UPDATE invites SET uses=uses+1 WHERE code=? AND "+usableInviteSQL, in.Invite, stamp(now))
 			if e != nil {
 				fail(w, 500, "加入失败")
 				return

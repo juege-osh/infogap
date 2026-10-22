@@ -8,6 +8,9 @@ import (
 )
 
 func migrateSchema(db *sql.DB) error {
+	if err := ensureColumn(db, "invites", "permanent", "INTEGER NOT NULL DEFAULT 0 CHECK(permanent IN (0,1))"); err != nil {
+		return err
+	}
 	if err := ensureColumn(db, "contribution_rewards", "credits", "INTEGER NOT NULL DEFAULT 100"); err != nil {
 		return err
 	}

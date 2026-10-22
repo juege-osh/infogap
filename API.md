@@ -14,9 +14,12 @@ POST /api/auth/verify {email,code,username?,invite?} => {user:User}; atomic invi
 POST /api/auth/logout {} => {ok:true}
 POST /api/submissions {title,summary,body,category,source_url,source_name,level,evidence,tags:[string]} => {id,code,status:'pending'}
 GET /api/me/activity => {ledger:[{kind,amount,created_at,note,expires_at}],submissions:[Gap]}
-GET /api/admin/overview => {stats,queue:[Gap],users:[User],invites:[{id,code,max_uses,uses,expires_at,active}],sources:[Source],reports:[...]}
-POST /api/admin/invites {max_uses:1,days:7} => {code,expires_at}
+GET /api/admin/overview => {stats,queue:[Gap],users:[User],invites:[{id,code,max_uses,uses,expires_at,active,permanent,campaign,campaign_email_count}],sources:[Source],reports:[...]}
+POST /api/admin/invites {max_uses:1,days:7} 或 {permanent:true} => {id,code,expires_at,permanent,campaign?}
+GET /api/admin/invites/{id}/campaign => {id,permanent,reward_rank,reward_days,reward_credits,email_count,awarded_count,emails:[{email,awarded,awarded_at,rank_until}]}（仅站长）
 POST /api/admin/invites/{id}/revoke {} => {ok:true}
+
+`permanent:true` 的固定邀请码不限次数、长期有效，直到撤销；`max_uses` 和 `days` 不参与限制。普通邀请码仍限 1–100 次、1–90 天。活动配置通过创建请求的 `emails[]/reward_rank/reward_days/reward_credits` 提交，实际名单只保存在数据库并限站长读取。固定码及活动码仅创建时返回，后续列表与详情不返回该码；完整规则见 `docs/invite-campaigns.md`。
 POST /api/admin/review/{id} {action:'approve'|'reject'|'dispute'|'expire',level, note} => {ok:true} approve only pending/rejected; once reward; dispute refunds unlock credits once; marks cannot consume, preserve audit.
 POST /api/admin/users/{id} {role?,disabled?} => {ok:true}; only admin grant reviewer (never admin). protect founder.
 POST /api/admin/sources/{id} {enabled:bool} => {ok:true}

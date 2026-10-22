@@ -15,6 +15,7 @@ type campaignReceipt struct {
 	ID        int64  `json:"id"`
 	Code      string `json:"code"`
 	ExpiresAt string `json:"expires_at"`
+	Permanent bool   `json:"permanent"`
 	Campaign  struct {
 		EmailCount int `json:"email_count"`
 	} `json:"campaign"`
@@ -319,5 +320,114 @@ func TestInviteCampaignThousandAddressesAndBoundedStrictJSON(t *testing.T) {
 	var n int
 	if err := s.db.QueryRow("SELECT COUNT(*) FROM invites").Scan(&n); err != nil || n != 1 {
 		t.Fatal("invalid large/extra JSON created an invite", n, err)
+	}
+}
+
+func TestPermanentInviteBeyondHundredUsesAndNinetyDaysUntilRevoked(t *testing.T) {
+	s := testServer(t)
+	start := s.now()
+	_, admin := account(t, s, founderEmail, "admin", 0)
+	input := map[string]any{"permanent": true, "max_uses": 1, "days": 1, "emails": []string{"fixed100@example.org"}, "reward_rank": "bronze", "reward_days": 30, "reward_credits": 1000}
+	w := request(s, "POST", "/api/admin/invites", input, admin)
+	mustStatus(t, w, 201)
+	var receipt campaignReceipt
+	if err := json.Unmarshal(w.Body.Bytes(), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if !receipt.Permanent || receipt.ExpiresAt != "" || receipt.Code == "" {
+		t.Fatal("permanent receipt is not explicit", w.Body.String())
+	}
+	var permanent, maxUses int
+	var expiry string
+	if err := s.db.QueryRow("SELECT permanent,max_uses,expires_at FROM invites WHERE id=?", receipt.ID).Scan(&permanent, &maxUses, &expiry); err != nil || permanent != 1 || maxUses != 0 || expiry != "" {
+		t.Fatal("permanent invitation still has a hidden cap", permanent, maxUses, expiry, err)
+	}
+	if _, err := s.db.Exec("UPDATE sessions SET expires_at=?", stamp(start.Add(400*24*time.Hour))); err != nil {
+		t.Fatal(err)
+	}
+	var rewarded *User
+	for i := 0; i < 101; i++ {
+		at := start.Add(120*24*time.Hour + time.Duration(i)*time.Hour)
+		s.now = func() time.Time { return at }
+		u, _ := campaignRegister(t, s, fmt.Sprintf("fixed%03d@example.org", i), fmt.Sprintf("长期注册%03d", i), receipt.Code)
+		if i < 100 {
+			if u.TierIndex != 0 || u.Credits != 0 || u.PaidUntil != "" {
+				t.Fatal("unlisted permanent-code user got benefits", u)
+			}
+		} else {
+			rewarded = u
+			if u.TierIndex != 1 || u.Credits != 1000 || u.PaidUntil != stamp(at.Add(30*24*time.Hour)) {
+				t.Fatal("101st registration lost campaign award", u)
+			}
+		}
+	}
+	last := s.now()
+	s.now = func() time.Time { return last.Add(2 * time.Minute) }
+	u, _ := campaignRegister(t, s, "fixed100@example.org", "", receipt.Code)
+	if u.Credits != 1000 || u.PaidUntil != rewarded.PaidUntil {
+		t.Fatal("permanent invitation repeated or extended reward")
+	}
+	var uses, awards int
+	s.db.QueryRow("SELECT uses FROM invites WHERE id=?", receipt.ID).Scan(&uses)
+	s.db.QueryRow("SELECT COUNT(*) FROM invite_campaign_awards WHERE invite_id=?", receipt.ID).Scan(&awards)
+	if uses != 101 || awards != 1 {
+		t.Fatal("permanent invitation count or once-only award wrong", uses, awards)
+	}
+	for _, path := range []string{"/api/admin/overview", fmt.Sprintf("/api/admin/invites/%d/campaign", receipt.ID)} {
+		w = request(s, "GET", path, nil, admin)
+		mustStatus(t, w, 200)
+		if !strings.Contains(w.Body.String(), `"permanent":true`) || strings.Contains(w.Body.String(), receipt.Code) {
+			t.Fatal("permanent status missing or code repeated", w.Body.String())
+		}
+	}
+	code := campaignCode(t, s, "revoked-fixed@example.org", receipt.Code)
+	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/admin/invites/%d/revoke", receipt.ID), nil, admin), 200)
+	mustStatus(t, request(s, "POST", "/api/auth/code", map[string]string{"email": "after-revoke@example.org", "invite": receipt.Code}, ""), 403)
+	mustStatus(t, request(s, "POST", "/api/auth/verify", map[string]string{"email": "revoked-fixed@example.org", "username": "撤销后注册", "invite": receipt.Code, "code": code}, ""), 403)
+	var remaining int
+	s.db.QueryRow("SELECT uses FROM invites WHERE id=?", receipt.ID).Scan(&remaining)
+	if remaining != 101 {
+		t.Fatal("revoked permanent invitation consumed a use")
+	}
+}
+
+func TestPermanentInviteMigrationPreservesOrdinaryRules(t *testing.T) {
+	s := testServer(t)
+	_, admin := account(t, s, founderEmail, "admin", 0)
+	expires := stamp(s.now().Add(7 * 24 * time.Hour))
+	if _, err := s.db.Exec("INSERT INTO invites(code,max_uses,uses,expires_at,created_at) VALUES('LEGACY-CODE',2,1,?,?)", expires, stamp(s.now())); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec("ALTER TABLE invites DROP COLUMN permanent"); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := migrateSchema(s.db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var flag, uses, maxUses int
+	var restored string
+	if err := s.db.QueryRow("SELECT permanent,uses,max_uses,expires_at FROM invites WHERE code='LEGACY-CODE'").Scan(&flag, &uses, &maxUses, &restored); err != nil || flag != 0 || uses != 1 || maxUses != 2 || restored != expires {
+		t.Fatal("migration changed existing invitation", flag, uses, maxUses, restored, err)
+	}
+	for _, input := range []map[string]any{{"max_uses": 101, "days": 7}, {"max_uses": 1, "days": 91}, {"permanent": false, "max_uses": 101, "days": 91}} {
+		mustStatus(t, request(s, "POST", "/api/admin/invites", input, admin), 400)
+	}
+	w := request(s, "POST", "/api/admin/invites", map[string]any{"permanent": true}, admin)
+	mustStatus(t, w, 201)
+	var receipt campaignReceipt
+	json.Unmarshal(w.Body.Bytes(), &receipt)
+	if !receipt.Permanent || receipt.ExpiresAt != "" {
+		t.Fatal("ordinary permanent invite missing")
+	}
+	u, _ := campaignRegister(t, s, "permanent-ordinary@example.org", "永久普通邀请", receipt.Code)
+	if u.Credits != 0 || u.TierIndex != 0 {
+		t.Fatal("plain permanent invite grants rewards")
+	}
+	w = request(s, "GET", "/api/admin/overview", nil, admin)
+	mustStatus(t, w, 200)
+	if strings.Contains(w.Body.String(), receipt.Code) {
+		t.Fatal("permanent ordinary invite code leaked in overview")
 	}
 }
