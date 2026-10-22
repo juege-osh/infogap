@@ -71,7 +71,7 @@ def throughput(events,started,now=None):
  return {'usable_completed_last_60s':sum(e[1] for e in events if e[0]>=now-60),'throughput_window_seconds':round(min(60,max(0,now-started)),2),'elapsed_seconds':round(max(0,now-started),2)}
 
 def run_batch(batch,home,work,number):
- schema=work/'schema.json';schema.write_text(json.dumps(SCHEMA));payload=[dict({k:x[k] for k in ('id','title','text','topic','evidence')},source_date=x.get('source_date',''),archive_context=x.get('archive_context',{})) for x in batch]
+ schema=work/'schema.json';schema.write_text(json.dumps(SCHEMA));payload=[dict({k:x[k] for k in ('id','title','text','topic','evidence')},source_date=x.get('source_date',''),archive_context=x.get('archive_context',{}),editorial_repair=x.get('editorial_repair',{})) for x in batch]
  command=[sys.executable,str(pathlib.Path(__file__).with_name('infer_appserver.py'))];start=time.monotonic();log=OUT/('batch-%04d-events.jsonl'%number);err=OUT/('batch-%04d-stderr.txt'%number)
  with log.open('w') as stdout,err.open('w') as stderr:
   p=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=stdout,stderr=stderr,env=safeenv(home),text=True,start_new_session=True)
