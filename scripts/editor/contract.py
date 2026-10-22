@@ -10,6 +10,7 @@ INSTRUCTION = '''你是面向中国普通读者的资讯编辑，只阅读提供
 涉及政策、法律或公共服务时，结合来源写清适用国家或地区及对象，不让中国读者误以为外国规定在国内适用；订阅日期不是生效日期。arXiv材料中的Announce Type为replace或replace-cross时，应明确属于论文版本更新收录；cross属于跨领域收录，不能称为首次发表。只转述原文支持的事实，保留关键数字、时间、适用条件及因果关系的区别。摘要或预印本不能写成已读全文或已经通过同行评审。对普通人的使用建议必须与论文已验证的结果区分开，不夸大效果。不要写HTML、网址或Markdown链接；出处由程序添加。
 若原始材料只有标题、信息太少、标题与正文不符或存在关键矛盾，不编造、不中断其他条目：usable=false，body为空，在missing_info中简短说明应补什么材料。资料充分则usable=true、missing_info为空，并满足300至1000字。title_zh是准确中文译名；summary为中文2至3句话、40至120字；tags为1至5个短中文标签。'''
 INSTRUCTION += '\n如果输入含archive_context，必须按其保留历史底库、原始日期及论文版本更新/跨领域收录标识；旧资料不得称为今天首次发布、最新进展或计作当日新闻。来源是出版商注册摘要时，不能冒充已核查论文全文。'
+INSTRUCTION += '\n若archive_context含editorial_repair，这是待修稿件及审核问题清单，不是新增事实来源。依据原始text重新整理并逐项纠正；old_body中的事实只有原始text支持才能保留。不得把审核备注或处理过程写入正文。材料不足或本身无具体阅读价值时仍返回usable=false，不为修稿凑数。'
 SCHEMA = {
  'type':'object', 'properties':{'items':{'type':'array','items':{
   'type':'object','properties':{
