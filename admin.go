@@ -235,6 +235,7 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 		_, e = tx.Exec("UPDATE gaps SET status='published',level=?,review_note=?,updated_at=?,released_at=CASE WHEN released_at='' THEN ? ELSE released_at END WHERE id=?", in.Level, in.Note, at, at, id)
 		if e == nil && g.Rewarded == 0 && g.AuthorID.Valid {
 			points := map[string]int{"ordinary": 20, "featured": 80, "rare": 200, "exclusive": 500}[in.Level]
+			credits := map[string]int{"ordinary": 100, "featured": 200, "rare": 400, "exclusive": 800}[in.Level]
 			featured, rare := 0, 0
 			quality := ""
 			if in.Level != "ordinary" {
@@ -244,12 +245,12 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 			if in.Level == "rare" || in.Level == "exclusive" {
 				rare = 1
 			}
-			_, e = tx.Exec("UPDATE users SET credits=credits+100,points=points+?,contributions=contributions+1,featured_contributions=featured_contributions+?,rare_contributions=rare_contributions+?,last_quality_at=CASE WHEN ?='' THEN last_quality_at ELSE ? END WHERE id=?", points, featured, rare, quality, quality, g.AuthorID.Int64)
+			_, e = tx.Exec("UPDATE users SET credits=credits+?,points=points+?,contributions=contributions+1,featured_contributions=featured_contributions+?,rare_contributions=rare_contributions+?,last_quality_at=CASE WHEN ?='' THEN last_quality_at ELSE ? END WHERE id=?", credits, points, featured, rare, quality, quality, g.AuthorID.Int64)
 			if e == nil {
-				_, e = tx.Exec("INSERT INTO ledger(user_id,gap_id,kind,amount,created_at,note) VALUES(?,?,'contribution',100,?,'有效贡献通过审核')", g.AuthorID.Int64, id, at)
+				_, e = tx.Exec("INSERT INTO ledger(user_id,gap_id,kind,amount,created_at,note) VALUES(?,?,'contribution',?,?,'有效贡献按审核等级奖励')", g.AuthorID.Int64, id, credits, at)
 			}
 			if e == nil {
-				_, e = tx.Exec("INSERT INTO contribution_rewards(gap_id,user_id,points,featured,rare,awarded_at) VALUES(?,?,?,?,?,?)", id, g.AuthorID.Int64, points, featured, rare, at)
+				_, e = tx.Exec("INSERT INTO contribution_rewards(gap_id,user_id,points,featured,rare,awarded_at,credits) VALUES(?,?,?,?,?,?,?)", id, g.AuthorID.Int64, points, featured, rare, at, credits)
 			}
 			if e == nil {
 				_, e = tx.Exec("UPDATE gaps SET rewarded=1 WHERE id=?", id)
@@ -287,7 +288,8 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 					rare = 1
 				}
 				// Reward facts survive later editorial changes to the displayed level.
-				err := tx.QueryRow("SELECT points,featured,rare FROM contribution_rewards WHERE gap_id=?", id).Scan(&points, &featured, &rare)
+				rewardCredits := 100
+				err := tx.QueryRow("SELECT points,featured,rare,credits FROM contribution_rewards WHERE gap_id=?", id).Scan(&points, &featured, &rare, &rewardCredits)
 				if err != nil && err != sql.ErrNoRows {
 					e = err
 				}
@@ -295,7 +297,7 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 				if e == nil {
 					e = tx.QueryRow("SELECT credits FROM users WHERE id=?", g.AuthorID.Int64).Scan(&balance)
 				}
-				debit := min(100, balance)
+				debit := min(rewardCredits, balance)
 				if e == nil {
 					_, e = tx.Exec("UPDATE users SET credits=credits-?,points=max(0,points-?),contributions=max(0,contributions-1),featured_contributions=max(0,featured_contributions-?),rare_contributions=max(0,rare_contributions-?) WHERE id=?", debit, points, featured, rare, g.AuthorID.Int64)
 				}

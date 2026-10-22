@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
  role TEXT NOT NULL DEFAULT 'member' CHECK(role IN ('admin','reviewer','member')),points INTEGER NOT NULL DEFAULT 0,credits INTEGER NOT NULL DEFAULT 10 CHECK(credits>=0),
  week_key TEXT NOT NULL DEFAULT '',weekly_used INTEGER NOT NULL DEFAULT 0,contributions INTEGER NOT NULL DEFAULT 0,featured_contributions INTEGER NOT NULL DEFAULT 0,rare_contributions INTEGER NOT NULL DEFAULT 0,
  last_quality_at TEXT NOT NULL DEFAULT '',disabled INTEGER NOT NULL DEFAULT 0,membership_until TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL,
+ paid_tier INTEGER NOT NULL DEFAULT 0,paid_until TEXT NOT NULL DEFAULT '',
  day_key TEXT NOT NULL DEFAULT '',daily_used INTEGER NOT NULL DEFAULT 0 CHECK(daily_used>=0),
  CHECK(role!='admin' OR email='1402272093@qq.com')
 );

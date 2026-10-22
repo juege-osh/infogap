@@ -201,9 +201,9 @@ func TestDailyQuotaAndRankGate(t *testing.T) {
 	_, _ = s.db.Exec("UPDATE users SET points=300,featured_contributions=1 WHERE id=?", id)
 	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", g), nil, c), 200)
 	g = gap(t, s, "exclusive", "published", nil)
-	_, _ = s.db.Exec("UPDATE users SET points=4000,rare_contributions=1,last_quality_at=? WHERE id=?", stamp(s.now().Add(-91*24*time.Hour)), id)
+	_, _ = s.db.Exec("UPDATE users SET points=2500,rare_contributions=1,last_quality_at=? WHERE id=?", stamp(s.now().Add(-91*24*time.Hour)), id)
 	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", g), nil, c), 403)
-	_, _ = s.db.Exec("UPDATE users SET last_quality_at=? WHERE id=?", stamp(s.now()), id)
+	_, _ = s.db.Exec("UPDATE users SET points=4000,last_quality_at=? WHERE id=?", stamp(s.now()), id)
 	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", g), nil, c), 200)
 }
 func TestReviewExactlyOnceAndRefund(t *testing.T) {
@@ -219,7 +219,7 @@ func TestReviewExactlyOnceAndRefund(t *testing.T) {
 	mustStatus(t, request(s, "POST", path, in, admin), 409)
 	var credits, contrib int
 	_ = s.db.QueryRow("SELECT credits,contributions FROM users WHERE id=?", author).Scan(&credits, &contrib)
-	if credits != 110 || contrib != 1 {
+	if credits != 210 || contrib != 1 {
 		t.Fatalf("%d %d", credits, contrib)
 	}
 	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", g), nil, ck), 200)

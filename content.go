@@ -263,16 +263,13 @@ func (s *server) unlock(w http.ResponseWriter, r *http.Request) {
 		fail(w, 409, "该信息已失效或待核验，暂不开放新的解锁")
 		return
 	}
-	if g.Level == "rare" && (u.TierIndex < 2 || u.FeaturedContributions < 1) {
-		fail(w, 403, "稀有信息需要白银段位和至少 1 条精选贡献")
+	if g.Level == "rare" && u.TierIndex < 2 {
+		fail(w, 403, "稀有信息需要白银及以上段位")
 		return
 	}
-	if g.Level == "exclusive" {
-		last, _ := time.Parse(time.RFC3339, u.LastQualityAt)
-		if u.TierIndex < 6 || u.RareContributions < 1 || last.Before(s.now().Add(-90*24*time.Hour)) {
-			fail(w, 403, "独家信息需要钻石段位、稀有贡献记录和最近 90 天的高质量贡献")
-			return
-		}
+	if g.Level == "exclusive" && u.TierIndex < 6 {
+		fail(w, 403, "独家信息需要钻石及以上段位")
+		return
 	}
 	totalCost := unlockCosts[g.Level]
 	if totalCost <= 0 {
@@ -283,7 +280,7 @@ func (s *server) unlock(w http.ResponseWriter, r *http.Request) {
 	cost := totalCost - dailyCost
 	kind := "credit"
 	if u.Credits < cost {
-		fail(w, 402, "阅读额度不足。有效贡献可获得 100 点，也可购买阅读额度。")
+		fail(w, 402, "阅读额度不足。有效贡献按审核等级可获得 100–800 点，也可购买阅读额度。")
 		return
 	}
 	used := u.DailyUsed

@@ -8,6 +8,12 @@ import (
 )
 
 func migrateSchema(db *sql.DB) error {
+	if err := ensureColumn(db, "contribution_rewards", "credits", "INTEGER NOT NULL DEFAULT 100"); err != nil {
+		return err
+	}
+	if err := migratePaidRanks(db); err != nil {
+		return err
+	}
 	if err := migrateMembership(db); err != nil {
 		return err
 	}
@@ -114,7 +120,7 @@ func (s *server) addSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 	s.decorate(u)
 	if !u.Entitlements.Subscriptions {
-		fail(w, 403, "订阅功能需黄金段位或有效功能会员")
+		fail(w, 403, "订阅功能需白银及以上有效段位")
 		return
 	}
 	var sub Subscription
@@ -168,7 +174,7 @@ func (s *server) deleteSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 	s.decorate(u)
 	if !u.Entitlements.Subscriptions {
-		fail(w, 403, "订阅功能需黄金段位或有效功能会员")
+		fail(w, 403, "订阅功能需白银及以上有效段位")
 		return
 	}
 	res, e := tx.Exec("DELETE FROM subscriptions WHERE id=? AND user_id=?", idParam(r), u.ID)

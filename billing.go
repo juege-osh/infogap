@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,25 +28,27 @@ type billingService struct {
 	createMu       sync.Mutex
 }
 type billingPlan struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Type        string `json:"type"`
-	AmountCents int64  `json:"amount_cents"`
-	Days        int    `json:"days"`
-	Credits     int    `json:"credits"`
+	RankTier       int    `json:"rank_tier"`
+	Months         int    `json:"months"`
+	MonthlyCredits int    `json:"monthly_credits"`
+	RankSnapshot   string `json:"-"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Type           string `json:"type"`
+	AmountCents    int64  `json:"amount_cents"`
+	Days           int    `json:"days"`
+	Credits        int    `json:"credits"`
 }
 
 var centTestPlan = billingPlan{ID: "payment_test", Name: "1分钱真实支付测试", Type: "payment_test", AmountCents: 1}
 
-var billingPlans = []billingPlan{
-	{ID: "monthly", Name: "30天订阅会员", Type: "membership", AmountCents: 990, Days: 30},
-	{ID: "yearly", Name: "365天订阅会员", Type: "membership", AmountCents: 9900, Days: 365},
-	{ID: "credits_100", Name: "100阅读额度", Type: "credits", AmountCents: 990, Credits: 100},
-	{ID: "credits_350", Name: "350阅读额度", Type: "credits", AmountCents: 2900, Credits: 350},
-	{ID: "credits_1000", Name: "1000阅读额度", Type: "credits", AmountCents: 7900, Credits: 1000},
-}
+var billingPlans = newBillingPlans()
 
 type billingOrder struct {
+	RankTier        int    `json:"rank_tier"`
+	Months          int    `json:"months"`
+	MonthlyCredits  int    `json:"monthly_credits"`
+	RankSnapshot    string `json:"-"`
 	ID              string `json:"id"`
 	UserID          int64  `json:"-"`
 	Plan            string `json:"plan"`
@@ -97,6 +100,12 @@ func InitBilling(s *server) error {
 	if err := migrateBillingCredits(s.db); err != nil {
 		return err
 	}
+	if err := migrateRankBilling(s.db); err != nil {
+		return err
+	}
+	if err := s.topupOldPurchases(); err != nil {
+		return err
+	}
 	b := &billingService{disabledReason: "支付暂未开通，请稍后再试"}
 	s.billing = b
 	if strings.TrimSpace(os.Getenv("PAY_PROVIDER")) != "huifu" {
@@ -141,6 +150,8 @@ func migrateBillingCredits(db *sql.DB) error {
 }
 func (s *server) billingRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/billing/plans", s.billingCatalog)
+	m.HandleFunc("GET /api/billing/rank-status", s.rankStatus)
+	m.HandleFunc("GET /api/billing/rank-upgrade", s.rankUpgradeQuote)
 	m.HandleFunc("POST /api/billing/orders", s.billingCreate)
 	m.HandleFunc("GET /api/billing/orders", s.billingList)
 	m.HandleFunc("GET /api/billing/orders/{id}", s.billingStatus)
@@ -168,17 +179,23 @@ func (s *server) billingCatalog(w http.ResponseWriter, r *http.Request) {
 	send(w, 200, map[string]any{"enabled": s.billingEnabled(), "disabled_reason": reason, "plans": billingPlans, "channels": []string{"alipay"}, "auto_renew": false})
 }
 
-const billingOrderCols = "id,user_id,plan,name,amount_cents,days,credits,channel,status,pay_payload,platform_trade_no,expires_at,paid_at,created_at,membership_until,last_checked_at"
+const billingOrderCols = "id,user_id,plan,name,amount_cents,days,credits,channel,status,pay_payload,platform_trade_no,expires_at,paid_at,created_at,membership_until,last_checked_at,rank_tier,months,monthly_credits,rank_snapshot"
 
 func billingScan(row scanner) (*billingOrder, error) {
 	o := &billingOrder{}
-	err := row.Scan(&o.ID, &o.UserID, &o.Plan, &o.Name, &o.AmountCents, &o.Days, &o.Credits, &o.Channel, &o.Status, &o.QRPayload, &o.PlatformTradeNo, &o.ExpiresAt, &o.PaidAt, &o.CreatedAt, &o.MembershipUntil, &o.LastCheckedAt)
+	err := row.Scan(&o.ID, &o.UserID, &o.Plan, &o.Name, &o.AmountCents, &o.Days, &o.Credits, &o.Channel, &o.Status, &o.QRPayload, &o.PlatformTradeNo, &o.ExpiresAt, &o.PaidAt, &o.CreatedAt, &o.MembershipUntil, &o.LastCheckedAt, &o.RankTier, &o.Months, &o.MonthlyCredits, &o.RankSnapshot)
 	if err != nil {
 		return nil, err
 	}
 	o.Type = "membership"
 	if o.Credits > 0 {
 		o.Type, o.Days = "credits", 0
+	}
+	if o.RankTier > 0 {
+		o.Type = "rank"
+		if strings.HasPrefix(o.Plan, "rank_upgrade_") {
+			o.Type = "rank_upgrade"
+		}
 	}
 	if o.Plan == centTestPlan.ID {
 		o.Type, o.Days = "payment_test", 0
@@ -268,6 +285,18 @@ func (s *server) billingCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		plan = &centTestPlan
 	}
+	if strings.HasPrefix(req.Plan, "rank_upgrade_") {
+		target, e := strconv.Atoi(strings.TrimPrefix(req.Plan, "rank_upgrade_"))
+		if e != nil {
+			fail(w, 400, "请选择有效段位")
+			return
+		}
+		plan, e = s.rankUpgradePlan(u.ID, target)
+		if e != nil {
+			fail(w, 409, e.Error())
+			return
+		}
+	}
 	if plan == nil {
 		fail(w, 400, "请选择有效套餐")
 		return
@@ -299,6 +328,17 @@ func (s *server) billingCreate(w http.ResponseWriter, r *http.Request) {
 		fail(w, 429, "创建订单过于频繁，请稍后再试")
 		return
 	}
+	if plan.RankTier > 0 {
+		var pending int
+		if e := s.db.QueryRow("SELECT COUNT(*) FROM billing_orders WHERE user_id=? AND rank_tier>0 AND status='pending'", u.ID).Scan(&pending); e != nil {
+			fail(w, 500, "订单状态读取失败")
+			return
+		}
+		if pending > 0 {
+			fail(w, 409, "已有待付款的段位订单，请先完成或等待其过期，避免重复购买")
+			return
+		}
+	}
 	id := newPaymentNumber("P")
 	expires := now.Add(30 * time.Minute)
 	storedDays := plan.Days
@@ -307,7 +347,7 @@ func (s *server) billingCreate(w http.ResponseWriter, r *http.Request) {
 		// the product; this placeholder never grants or exposes membership days.
 		storedDays = 1
 	}
-	_, err = s.db.ExecContext(r.Context(), `INSERT INTO billing_orders(id,user_id,plan,name,amount_cents,days,credits,channel,expires_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, id, u.ID, plan.ID, plan.Name, plan.AmountCents, storedDays, plan.Credits, req.Channel, stamp(expires), stamp(now), stamp(now))
+	_, err = s.db.ExecContext(r.Context(), `INSERT INTO billing_orders(id,user_id,plan,name,amount_cents,days,credits,channel,expires_at,created_at,updated_at,rank_tier,months,monthly_credits,rank_snapshot) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, u.ID, plan.ID, plan.Name, plan.AmountCents, storedDays, plan.Credits, req.Channel, stamp(expires), stamp(now), stamp(now), plan.RankTier, plan.Months, plan.MonthlyCredits, plan.RankSnapshot)
 	if err != nil {
 		fail(w, 500, "订单暂时无法创建")
 		return
@@ -517,6 +557,11 @@ func (s *server) billingApply(result huifuPaymentResult, eventKey string) error 
 			return errors.New("invalid test payment snapshot")
 		}
 		_, err = tx.Exec("UPDATE billing_orders SET status='success',platform_trade_no=?,paid_at=?,updated_at=? WHERE id=?", result.PlatformTradeNo, stamp(now), stamp(now), o.ID)
+	} else if o.RankTier > 0 {
+		if _, err = tx.Exec("UPDATE billing_orders SET status='success',platform_trade_no=?,paid_at=?,updated_at=? WHERE id=?", result.PlatformTradeNo, stamp(now), stamp(now), o.ID); err != nil {
+			return err
+		}
+		err = applyRankOrder(tx, o, now)
 	} else if o.Credits > 0 {
 		// Price and quantity come from the stored order, never from callback/client input.
 		// Both the platform trade and the order grant must be unique before any credit sticks.
@@ -535,6 +580,9 @@ func (s *server) billingApply(result huifuPaymentResult, eventKey string) error 
 			return err
 		}
 		_, err = tx.Exec("UPDATE users SET credits=credits+? WHERE id=?", o.Credits, o.UserID)
+		if err == nil {
+			err = topupHistoricalCredits(tx, o, now)
+		}
 	} else {
 		var currentUntil string
 		if err = tx.QueryRow("SELECT membership_until FROM users WHERE id=?", o.UserID).Scan(&currentUntil); err != nil {

@@ -18,7 +18,12 @@ func TestSignedNativeCallbackWithoutOptionalOrderStateSettlesExactlyOnce(t *test
 			if plan == "payment_test" {
 				id, cookie = account(t, s, founderEmail, "admin", 10)
 			}
-			o := billingPurchase(t, s, cookie, plan, "alipay")
+			var o *billingOrder
+			if plan == "monthly" {
+				o = historicalBillingOrder(t, s, cookie, plan, "alipay")
+			} else {
+				o = billingPurchase(t, s, cookie, plan, "alipay")
+			}
 			client := testHuifuClient(t)
 			s.billing = &billingService{provider: client, merchantID: client.huifuID}
 			data := huifuSuccessData()
@@ -42,7 +47,7 @@ func TestSignedNativeCallbackWithoutOptionalOrderStateSettlesExactlyOnce(t *test
 			if status != "success" {
 				t.Fatal("verified native callback was not settled")
 			}
-			if plan == "credits_100" && credits != 110 {
+			if plan == "credits_100" && credits != 1010 {
 				t.Fatal("callback duplicated or lost credits", credits)
 			}
 			if plan == "monthly" && until == "" {
@@ -81,7 +86,7 @@ func TestBackgroundReconciliationRecoversMissedCallbackSafely(t *testing.T) {
 			s.db.QueryRow("SELECT credits FROM users WHERE id=?", id).Scan(&credits)
 			s.db.QueryRow("SELECT count(*) FROM billing_credit_grants WHERE user_id=?", id).Scan(&grants)
 			if kind == "paid" {
-				if status != "success" || credits != 110 || grants != 1 {
+				if status != "success" || credits != 1010 || grants != 1 {
 					t.Fatal("background recovery lost or duplicated settlement", status, credits, grants)
 				}
 			} else if status != "pending" || credits != 10 || grants != 0 {

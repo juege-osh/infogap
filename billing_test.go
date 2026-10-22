@@ -79,7 +79,7 @@ func TestBillingPlansDisabledNoMock(t *testing.T) {
 	_, cookie := account(t, s, "disabled@example.org", "member", 10)
 	w := request(s, "GET", "/api/billing/plans", nil, "")
 	mustStatus(t, w, 200)
-	if !strings.Contains(w.Body.String(), `"enabled":false`) || !strings.Contains(w.Body.String(), `"amount_cents":9900`) {
+	if !strings.Contains(w.Body.String(), `"enabled":false`) || !strings.Contains(w.Body.String(), `"amount_cents":18800`) {
 		t.Fatal(w.Body)
 	}
 	mustStatus(t, request(s, "POST", "/api/billing/orders", map[string]string{"plan": "monthly", "channel": "alipay"}, cookie), 503)
@@ -91,21 +91,21 @@ func TestBillingPlansDisabledNoMock(t *testing.T) {
 }
 func TestBillingCheckoutPriceOwnershipReuse(t *testing.T) {
 	s, f, _, cookie := billingFixture(t)
-	o := billingPurchase(t, s, cookie, "monthly", "alipay")
-	if o.AmountCents != 990 || o.Days != 30 || len(o.ID) > 32 || o.PayURL != "" || o.PaymentKind != "qr" || o.QRPayload == "" {
+	o := billingPurchase(t, s, cookie, "rank_3_1", "alipay")
+	if o.AmountCents != 1600 || o.Days != 30 || len(o.ID) > 32 || o.PayURL != "" || o.PaymentKind != "qr" || o.QRPayload == "" {
 		t.Fatalf("wrong order: %+v", o)
 	}
-	again := billingPurchase(t, s, cookie, "monthly", "alipay")
+	again := billingPurchase(t, s, cookie, "rank_3_1", "alipay")
 	if again.ID != o.ID || f.creates != 1 {
 		t.Fatal("duplicate checkout")
 	}
-	other := billingPurchase(t, s, cookie, "yearly", "alipay")
+	other := billingPurchase(t, s, cookie, "credits_100", "alipay")
 	if other.ID == o.ID || f.creates != 2 {
 		t.Fatal("different plan reused the wrong invoice")
 	}
 	_, otherCookie := account(t, s, "otherpayer@example.org", "member", 10)
 	mustStatus(t, request(s, "GET", "/api/billing/orders/"+o.ID, nil, otherCookie), 404)
-	mustStatus(t, request(s, "POST", "/api/billing/orders", map[string]any{"plan": "monthly", "channel": "alipay", "amount_cents": 1}, cookie), 400)
+	mustStatus(t, request(s, "POST", "/api/billing/orders", map[string]any{"plan": "rank_3_1", "channel": "alipay", "amount_cents": 1}, cookie), 400)
 }
 
 func TestBillingOnlyAdvertisesAndCreatesAlipay(t *testing.T) {
@@ -221,7 +221,7 @@ func TestBillingHistoricalWeChatOrdersRemainReadableAndReconcilable(t *testing.T
 			var until string
 			s.db.QueryRow("SELECT credits,points,membership_until FROM users WHERE id=?", uid).Scan(&credits, &points, &until)
 			s.db.QueryRow("SELECT (SELECT COUNT(*) FROM billing_grants)+(SELECT COUNT(*) FROM billing_credit_grants)").Scan(&grants)
-			if credits != 10+product.credits || points != 0 || grants != 1 || (product.credits == 0 && until != stamp(s.now().Add(30*24*time.Hour))) || (product.credits > 0 && until != "") {
+			if credits != 10+product.credits*10 || points != 0 || grants != 1 || (product.credits == 0 && until != stamp(s.now().Add(30*24*time.Hour))) || (product.credits > 0 && until != "") {
 				t.Fatal("historical payment changed product rights or granted twice")
 			}
 		})
@@ -229,7 +229,7 @@ func TestBillingHistoricalWeChatOrdersRemainReadableAndReconcilable(t *testing.T
 }
 func TestBillingCallbackGrantsOnlySubscriptionOnce(t *testing.T) {
 	s, _, uid, cookie := billingFixture(t)
-	o := billingPurchase(t, s, cookie, "monthly", "alipay")
+	o := historicalBillingOrder(t, s, cookie, "monthly", "alipay")
 	result := billingSuccess(o)
 	mustStatus(t, billingCallback(s, result, "bad"), 400)
 	var until string
@@ -250,7 +250,7 @@ func TestBillingCallbackGrantsOnlySubscriptionOnce(t *testing.T) {
 	if n != 1 {
 		t.Fatal("duplicate grant", n)
 	}
-	renewed := billingPurchase(t, s, cookie, "yearly", "alipay")
+	renewed := historicalBillingOrder(t, s, cookie, "yearly", "alipay")
 	mustStatus(t, billingCallback(s, billingSuccess(renewed), "test-valid"), 200)
 	s.db.QueryRow("SELECT membership_until FROM users WHERE id=?", uid).Scan(&until)
 	if until != stamp(s.now().Add(395*24*time.Hour)) {
@@ -267,7 +267,7 @@ func TestBillingRejectMismatchedSuccessfulPayment(t *testing.T) {
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {
 			s, _, uid, cookie := billingFixture(t)
-			o := billingPurchase(t, s, cookie, "monthly", "alipay")
+			o := historicalBillingOrder(t, s, cookie, "monthly", "alipay")
 			r := billingSuccess(o)
 			mutate(&r)
 			if s.billingApply(r, "event") == nil {
@@ -283,8 +283,8 @@ func TestBillingRejectMismatchedSuccessfulPayment(t *testing.T) {
 }
 func TestBillingOnePlatformTransactionCannotFundTwoOrders(t *testing.T) {
 	s, _, _, cookie := billingFixture(t)
-	a := billingPurchase(t, s, cookie, "monthly", "alipay")
-	b := billingPurchase(t, s, cookie, "yearly", "alipay")
+	a := historicalBillingOrder(t, s, cookie, "monthly", "alipay")
+	b := historicalBillingOrder(t, s, cookie, "yearly", "alipay")
 	ar, br := billingSuccess(a), billingSuccess(b)
 	br.PlatformTradeNo = ar.PlatformTradeNo
 	if e := s.billingApply(ar, "a"); e != nil {
@@ -302,11 +302,11 @@ func TestBillingOnePlatformTransactionCannotFundTwoOrders(t *testing.T) {
 func TestBillingTimeoutRetainsOrderAndLateSettlement(t *testing.T) {
 	s, f, uid, cookie := billingFixture(t)
 	f.createErr = errors.New("test timeout")
-	o := billingPurchase(t, s, cookie, "monthly", "alipay")
+	o := historicalBillingOrder(t, s, cookie, "monthly", "alipay")
 	if o.Status != "pending" || o.PayURL != "" {
 		t.Fatal("timeout falsely settled/failed")
 	}
-	again := billingPurchase(t, s, cookie, "monthly", "alipay")
+	again := historicalBillingOrder(t, s, cookie, "monthly", "alipay")
 	if again.ID != o.ID || f.creates != 1 {
 		t.Fatal("uncertain checkout repeated upstream")
 	}
@@ -322,8 +322,8 @@ func TestBillingTimeoutRetainsOrderAndLateSettlement(t *testing.T) {
 }
 func TestBillingStatusDoesNotSettleDifferentQueriedOrder(t *testing.T) {
 	s, f, uid, cookie := billingFixture(t)
-	a := billingPurchase(t, s, cookie, "monthly", "alipay")
-	b := billingPurchase(t, s, cookie, "yearly", "alipay")
+	a := historicalBillingOrder(t, s, cookie, "monthly", "alipay")
+	b := historicalBillingOrder(t, s, cookie, "yearly", "alipay")
 	f.queryErr = nil
 	f.query = billingSuccess(b)
 	mustStatus(t, request(s, "GET", "/api/billing/orders/"+a.ID, nil, cookie), 200)
@@ -336,7 +336,7 @@ func TestBillingStatusDoesNotSettleDifferentQueriedOrder(t *testing.T) {
 
 func TestBillingStatusConfirmsPaidOrderAndRefreshesUser(t *testing.T) {
 	s, f, _, cookie := billingFixture(t)
-	o := billingPurchase(t, s, cookie, "monthly", "alipay")
+	o := historicalBillingOrder(t, s, cookie, "monthly", "alipay")
 	f.queryErr = nil
 	f.query = billingSuccess(o)
 	w := request(s, "GET", "/api/billing/orders/"+o.ID, nil, cookie)
@@ -354,7 +354,7 @@ func TestBillingStatusConfirmsPaidOrderAndRefreshesUser(t *testing.T) {
 }
 func TestBillingConcurrentCallbacksGrantOnce(t *testing.T) {
 	s, _, _, cookie := billingFixture(t)
-	o := billingPurchase(t, s, cookie, "monthly", "alipay")
+	o := historicalBillingOrder(t, s, cookie, "monthly", "alipay")
 	result := billingSuccess(o)
 	var wg sync.WaitGroup
 	errs := make(chan error, 12)
@@ -393,7 +393,7 @@ func TestBillingCallbackOnlyEmptyBodyIsProbe(t *testing.T) {
 
 func TestBillingFailureAndMembershipExpiry(t *testing.T) {
 	s, _, uid, cookie := billingFixture(t)
-	o := billingPurchase(t, s, cookie, "monthly", "alipay")
+	o := historicalBillingOrder(t, s, cookie, "monthly", "alipay")
 	result := billingSuccess(o)
 	result.TransactionStatus = "F"
 	result.OrderStatus = "2"
@@ -423,14 +423,14 @@ func TestBillingCreditPlansAndCheckoutUseServerPrices(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Plans) != 5 {
-		t.Fatalf("expected 2 membership plans and 3 credit packs: %s", w.Body)
+	if len(catalog.Plans) != 31 {
+		t.Fatalf("expected 28 rank plans and 3 credit packs: %s", w.Body)
 	}
 	for _, test := range []struct {
 		id     string
 		amount int64
 		credit int
-	}{{"credits_100", 990, 100}, {"credits_350", 2900, 350}, {"credits_1000", 7900, 1000}} {
+	}{{"credits_100", 990, 1000}, {"credits_350", 2900, 3500}, {"credits_1000", 7900, 10000}} {
 		o := billingPurchase(t, s, cookie, test.id, "alipay")
 		if o.Type != "credits" || o.AmountCents != test.amount || o.Credits != test.credit || o.Days != 0 || o.MembershipUntil != "" {
 			t.Fatalf("incorrect credit order: %+v", o)
@@ -460,14 +460,14 @@ func TestBillingCreditsGrantOnlyStoredQuantityAndRefreshUser(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.Order.Type != "credits" || response.Order.Status != "success" || response.Order.Days != 0 || response.User.Credits != 360 || response.User.Points != 120 || response.User.MembershipUntil != until || response.User.Entitlements.DelayHours != 48 {
+	if response.Order.Type != "credits" || response.Order.Status != "success" || response.Order.Days != 0 || response.User.Credits != 3510 || response.User.Points != 120 || response.User.MembershipUntil != until || response.User.Entitlements.DelayHours != 48 {
 		t.Fatalf("credit payment altered unrelated rights: %s", w.Body)
 	}
 	var membershipGrants, creditGrants, ledgerCount, amount int
 	s.db.QueryRow("SELECT COUNT(*) FROM billing_grants").Scan(&membershipGrants)
 	s.db.QueryRow("SELECT COUNT(*) FROM billing_credit_grants WHERE order_id=?", o.ID).Scan(&creditGrants)
 	s.db.QueryRow("SELECT COUNT(*),COALESCE(SUM(amount),0) FROM ledger WHERE user_id=? AND kind='purchase'", uid).Scan(&ledgerCount, &amount)
-	if membershipGrants != 0 || creditGrants != 1 || ledgerCount != 1 || amount != 350 {
+	if membershipGrants != 0 || creditGrants != 1 || ledgerCount != 1 || amount != 3500 {
 		t.Fatalf("unexpected grants/ledger: %d %d %d %d", membershipGrants, creditGrants, ledgerCount, amount)
 	}
 }
@@ -527,7 +527,7 @@ func TestBillingCreditsConcurrentDuplicateAndLateFailure(t *testing.T) {
 	s.db.QueryRow("SELECT credits,points,membership_until,role FROM users WHERE id=?", uid).Scan(&credits, &points, &until, &role)
 	s.db.QueryRow("SELECT COUNT(*) FROM billing_credit_grants").Scan(&grants)
 	s.db.QueryRow("SELECT COUNT(*) FROM ledger WHERE kind='purchase'").Scan(&entries)
-	if credits != 1010 || points != 0 || until != "" || role != "member" || grants != 1 || entries != 1 {
+	if credits != 10010 || points != 0 || until != "" || role != "member" || grants != 1 || entries != 1 {
 		t.Fatalf("duplicate or late failure altered grants: %d %d %s %s %d %d", credits, points, until, role, grants, entries)
 	}
 }
@@ -554,7 +554,7 @@ func TestBillingCreditSettlementRollsBackWholeTransaction(t *testing.T) {
 
 func TestBillingCreditMigrationPreservesExistingMembershipOrders(t *testing.T) {
 	s, f, uid, cookie := billingFixture(t)
-	o := billingPurchase(t, s, cookie, "monthly", "alipay")
+	o := historicalBillingOrder(t, s, cookie, "monthly", "alipay")
 	if _, err := s.db.Exec("ALTER TABLE billing_orders DROP COLUMN credits"); err != nil {
 		t.Fatal(err)
 	}
@@ -578,7 +578,7 @@ func TestBillingCreditMigrationPreservesExistingMembershipOrders(t *testing.T) {
 	var balance int
 	var until string
 	s.db.QueryRow("SELECT credits,membership_until FROM users WHERE id=?", uid).Scan(&balance, &until)
-	if balance != 110 || until != stamp(s.now().Add(30*24*time.Hour)) {
+	if balance != 1010 || until != stamp(s.now().Add(30*24*time.Hour)) {
 		t.Fatal("migration failed to preserve independent products", balance, until)
 	}
 }

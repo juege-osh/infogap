@@ -18,7 +18,7 @@ func TestSubscriptionEntitlementsAndLimits(t *testing.T) {
 	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/save", g), nil, member), 200)
 	mustStatus(t, request(s, "POST", "/api/subscriptions", map[string]string{"kind": "category", "value": "物理"}, member), 403)
 	mustStatus(t, request(s, "GET", "/api/gaps?view=subscribed", nil, member), 403)
-	for _, c := range []struct{ points, limit int }{{0, 0}, {700, 3}, {1400, 8}, {2500, 8}, {4000, 20}, {6500, 40}, {15000, 40}} {
+	for _, c := range []struct{ points, limit int }{{0, 0}, {700, 3}, {1400, 8}, {2500, 12}, {4000, 20}, {6500, 40}, {15000, 40}} {
 		u := s.decorate(&User{Points: c.points, Role: "member"})
 		if u.Entitlements.SubscriptionLimit != c.limit || u.Entitlements.Subscriptions != (c.limit > 0) {
 			t.Fatalf("points=%d entitlements=%+v", c.points, u.Entitlements)

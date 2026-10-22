@@ -174,7 +174,7 @@ func (s *server) diagnostics(w http.ResponseWriter, r *http.Request) {
 				paid := provider.orders[id]
 				err := test.billingApply(paid, "diagnostic-repeat-"+id)
 				test.db.QueryRow("SELECT credits FROM users WHERE id=1").Scan(&after)
-				add("模拟付款核验与幂等入账", created.Code == 201 && status.Code == 200 && strings.Contains(status.Body.String(), `"status":"success"`) && err == nil && after-before == 100, "仅隔离数据库模拟到账 100 额度；重复核验不重复入账")
+				add("模拟付款核验与幂等入账", created.Code == 201 && status.Code == 200 && strings.Contains(status.Body.String(), `"status":"success"`) && err == nil && after-before == 1000, "仅隔离数据库模拟到账 1000 积分；重复核验不重复入账")
 				paid.AmountCents++
 				add("错误金额与订单归属拦截", test.billingApply(paid, "diagnostic-wrong-amount") != nil && do("GET", "/api/billing/orders/"+id, ownerCookie, nil).Code == 404, "错误金额不能结算，其他账号不能查询该订单")
 			}

@@ -27,7 +27,7 @@ import (
 )
 
 const founderEmail = "1402272093@qq.com"
-const version = "1.0.8"
+const version = "1.0.9"
 
 var buildCommit = "dev"
 
@@ -50,6 +50,10 @@ type Entitlements struct {
 }
 
 type User struct {
+	PaidTier              int          `json:"paid_tier"`
+	PaidUntil             string       `json:"paid_until"`
+	EarnedTierIndex       int          `json:"earned_tier_index"`
+	EarnedTier            string       `json:"earned_tier"`
 	TestMode              bool         `json:"test_mode"`
 	CanTestMode           bool         `json:"can_test_mode"`
 	ID                    int64        `json:"id"`
@@ -87,14 +91,14 @@ type scanner interface{ Scan(...any) error }
 
 func userScan(r scanner) (*User, error) {
 	u := &User{}
-	err := r.Scan(&u.ID, &u.Email, &u.Username, &u.Role, &u.Points, &u.Credits, &u.Week, &u.WeeklyUsed, &u.Contributions, &u.FeaturedContributions, &u.RareContributions, &u.LastQualityAt, &u.Disabled, &u.MembershipUntil, &u.Day, &u.DailyUsed)
+	err := r.Scan(&u.ID, &u.Email, &u.Username, &u.Role, &u.Points, &u.Credits, &u.Week, &u.WeeklyUsed, &u.Contributions, &u.FeaturedContributions, &u.RareContributions, &u.LastQualityAt, &u.Disabled, &u.MembershipUntil, &u.Day, &u.DailyUsed, &u.PaidTier, &u.PaidUntil)
 	if err != nil {
 		return nil, err
 	}
 	return u, nil
 }
 
-const userCols = "id,email,username,role,points,credits,week_key,weekly_used,contributions,featured_contributions,rare_contributions,last_quality_at,disabled,membership_until,day_key,daily_used"
+const userCols = "id,email,username,role,points,credits,week_key,weekly_used,contributions,featured_contributions,rare_contributions,last_quality_at,disabled,membership_until,day_key,daily_used,paid_tier,paid_until"
 
 func (s *server) decorate(u *User) *User {
 	if u == nil {
@@ -108,6 +112,12 @@ func (s *server) decorate(u *User) *User {
 			u.Tier = t.Name
 		}
 	}
+	u.EarnedTierIndex, u.EarnedTier = u.TierIndex, u.Tier
+	paidUntil, _ := time.Parse(time.RFC3339, u.PaidUntil)
+	if paidUntil.After(s.now()) && u.PaidTier > u.TierIndex && u.PaidTier < len(tiers) {
+		u.TierIndex = u.PaidTier
+		u.Tier = tiers[u.PaidTier].Name
+	}
 	until, _ := time.Parse(time.RFC3339, u.MembershipUntil)
 	u.IsMember = until.After(s.now())
 	limit := 0
@@ -116,10 +126,14 @@ func (s *server) decorate(u *User) *User {
 		limit = 40
 	case u.TierIndex >= 6:
 		limit = 20
+	case u.TierIndex >= 5:
+		limit = 12
 	case u.TierIndex >= 4:
 		limit = 8
 	case u.TierIndex >= 3:
 		limit = 3
+	case u.TierIndex >= 2:
+		limit = 1
 	}
 	if u.IsMember {
 		limit = max(limit, 20)
@@ -191,6 +205,15 @@ func (s *server) actor(r *http.Request) *User {
 	u, e := userScan(s.db.QueryRow(`SELECT `+prefixCols("u.", userCols)+` FROM users u JOIN sessions se ON se.user_id=u.id WHERE se.token_hash=? AND se.expires_at>? AND u.disabled=0`, digest(c.Value), stamp(s.now())))
 	if e != nil {
 		return nil
+	}
+	if s.billing != nil {
+		if e = s.syncRankUser(u.ID); e != nil {
+			return nil
+		}
+		u, e = userScan(s.db.QueryRow("SELECT "+userCols+" FROM users WHERE id=? AND disabled=0", u.ID))
+		if e != nil {
+			return nil
+		}
 	}
 	return s.decorate(u)
 }
@@ -267,6 +290,7 @@ func (s *server) routes() http.Handler {
 		send(w, 200, map[string]any{"ok": true, "version": version, "commit": buildCommit, "service": "infogap"})
 	})
 	m.HandleFunc("GET /api/bootstrap", s.bootstrap)
+	m.HandleFunc("GET /api/leaderboard", s.leaderboard)
 	m.HandleFunc("POST /api/auth/code", s.authCode)
 	m.HandleFunc("POST /api/auth/verify", s.authVerify)
 	m.HandleFunc("POST /api/auth/logout", s.logout)
@@ -407,6 +431,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go s.runPaymentReconciliation(ctx)
+	go s.runRankGifts(ctx)
 	go func() {
 		<-ctx.Done()
 		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
