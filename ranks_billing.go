@@ -15,7 +15,7 @@ import (
 
 var rankMonthlyPrices = []int64{0, 1000, 1300, 1600, 1900, 2200, 2500, 2800}
 var rankYearlyPrices = []int64{0, 6800, 8800, 10800, 12800, 14800, 16800, 18800}
-var rankMonthlyGifts = []int{0, 300, 600, 1200, 2500, 4000, 7000, 10000}
+var rankAnnualGifts = []int{0, 2000, 4000, 6000, 8000, 10000, 12000, 14000}
 
 func rankGift(tier, months int) int {
 	bonus := 0
@@ -27,7 +27,9 @@ func rankGift(tier, months int) int {
 	case 12:
 		bonus = 20
 	}
-	return rankMonthlyGifts[tier] * (100 + bonus) / 100
+	// Annual values are the final per-period gifts. Round only the final ratio,
+	// never the intermediate monthly base (which would turn 4000 into 3999).
+	return (rankAnnualGifts[tier]*(100+bonus) + 60) / 120
 }
 func rankDays(months int) int {
 	if months == 12 {
@@ -99,22 +101,28 @@ func migrateRankBilling(db *sql.DB) error {
 			return e
 		}
 	}
-	_, e := db.Exec(rankBillingSchema)
-	return e
+	if _, e := db.Exec(rankBillingSchema); e != nil {
+		return e
+	}
+	return migrateRankCredits(db)
 }
 func grantRankGifts(tx *sql.Tx, user int64, now time.Time) error {
 	type gift struct {
 		id             int64
 		total, granted int
+		starts         string
 	}
-	rows, e := tx.Query("SELECT id,monthly_credits,granted_credits FROM rank_periods WHERE user_id=? AND starts_at<=? AND monthly_credits>granted_credits ORDER BY starts_at,id", user, stamp(now))
+	if e := expireRankCredits(tx, user, now); e != nil {
+		return e
+	}
+	rows, e := tx.Query("SELECT id,monthly_credits,granted_credits,starts_at FROM rank_periods WHERE user_id=? AND starts_at<=? AND monthly_credits>granted_credits ORDER BY starts_at,id", user, stamp(now))
 	if e != nil {
 		return e
 	}
 	items := []gift{}
 	for rows.Next() {
 		var g gift
-		if e = rows.Scan(&g.id, &g.total, &g.granted); e != nil {
+		if e = rows.Scan(&g.id, &g.total, &g.granted, &g.starts); e != nil {
 			rows.Close()
 			return e
 		}
@@ -127,7 +135,18 @@ func grantRankGifts(tx *sql.Tx, user int64, now time.Time) error {
 	}
 	for _, g := range items {
 		delta := g.total - g.granted
-		result, e := tx.Exec("INSERT INTO ledger(user_id,kind,amount,created_at,note) VALUES(?,'rank_monthly_gift',?,?,'段位月赠阅读积分 · 永久有效')", user, delta, stamp(now))
+		due := now // An upgrade's additional gift takes effect when paid.
+		if g.granted == 0 {
+			due, e = time.Parse(time.RFC3339, g.starts)
+			if e != nil {
+				return e
+			}
+		}
+		expires := stamp(due.Add(30 * 24 * time.Hour))
+		if _, e = tx.Exec("INSERT INTO rank_credit_batches(period_id,user_id,entitlement_total,amount,remaining,granted_at,expires_at,policy_version) VALUES(?,?,?,?,?,?,?,?)", g.id, user, g.total, delta, delta, stamp(due), expires, rankGiftPolicyVersion); e != nil {
+			return e
+		}
+		result, e := tx.Exec("INSERT INTO ledger(user_id,kind,amount,created_at,note,expires_at) VALUES(?,'rank_gift',?,?,'段位每期赠分 · 应到账日起30天有效',?)", user, delta, stamp(now), expires)
 		if e != nil {
 			return e
 		}
@@ -135,15 +154,17 @@ func grantRankGifts(tx *sql.Tx, user int64, now time.Time) error {
 		if e != nil {
 			return e
 		}
-		if _, e = tx.Exec("INSERT INTO rank_gift_events(period_id,total_credits,ledger_id,created_at) VALUES(?,?,?,?)", g.id, g.total, id, stamp(now)); e != nil {
-			return e
-		}
-		if _, e = tx.Exec("UPDATE users SET credits=credits+? WHERE id=?", delta, user); e != nil {
+		if _, e = tx.Exec("INSERT INTO rank_gift_events(period_id,total_credits,ledger_id,created_at,policy_version,expires_at) VALUES(?,?,?,?,?,?)", g.id, g.total, id, stamp(now), rankGiftPolicyVersion, expires); e != nil {
 			return e
 		}
 		if _, e = tx.Exec("UPDATE rank_periods SET granted_credits=?,updated_at=? WHERE id=? AND granted_credits=?", g.total, stamp(now), g.id, g.granted); e != nil {
 			return e
 		}
+	}
+	// Missed scheduled periods are processed once, but their old gifts are never
+	// revived for another 30 days merely because a member returned late.
+	if e = expireRankCredits(tx, user, now); e != nil {
+		return e
 	}
 	var tier int
 	var until string
@@ -325,6 +346,12 @@ func applyRankOrder(tx *sql.Tx, o *billingOrder, now time.Time) error {
 		if json.Unmarshal([]byte(o.RankSnapshot), &parts) != nil || len(parts) == 0 {
 			return errors.New("invalid upgrade snapshot")
 		}
+		// A callback may arrive after the next scheduled period while the gift
+		// worker was unavailable. Grant that base period at its scheduled time
+		// first, so the upgrade delta still gets its own payment-time expiry.
+		if e := grantRankGifts(tx, o.UserID, now); e != nil {
+			return e
+		}
 		for _, p := range parts {
 			var tier int
 			var credit int
@@ -407,7 +434,17 @@ func (s *server) rankStatus(w http.ResponseWriter, r *http.Request) {
 			next = st
 		}
 	}
-	send(w, 200, map[string]any{"user": u, "periods": items, "next_gift_at": next})
+	if e = rows.Err(); e != nil {
+		fail(w, 500, "段位记录读取失败")
+		return
+	}
+	rows.Close()
+	batches, e := activeRankBatches(s.db, u.ID, s.now())
+	if e != nil {
+		fail(w, 500, "赠分记录读取失败")
+		return
+	}
+	send(w, 200, map[string]any{"user": u, "periods": items, "next_gift_at": next, "batches": batches, "gift_policy_version": rankGiftPolicyVersion, "gift_valid_days": 30})
 }
 func (s *server) rankUpgradeQuote(w http.ResponseWriter, r *http.Request) {
 	u := s.require(w, r)
@@ -428,7 +465,7 @@ func (s *server) rankUpgradeQuote(w http.ResponseWriter, r *http.Request) {
 }
 func (s *server) runRankGifts(ctx context.Context) {
 	run := func() {
-		rows, e := s.db.Query("SELECT DISTINCT user_id FROM rank_periods WHERE starts_at<=? AND monthly_credits>granted_credits LIMIT 200", stamp(s.now()))
+		rows, e := s.db.Query("SELECT user_id FROM (SELECT user_id FROM rank_periods WHERE starts_at<=? AND monthly_credits>granted_credits UNION SELECT user_id FROM rank_credit_batches WHERE expired_at='' AND expires_at<=?) LIMIT 200", stamp(s.now()), stamp(s.now()))
 		if e != nil {
 			return
 		}

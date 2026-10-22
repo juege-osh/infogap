@@ -27,7 +27,7 @@ import (
 )
 
 const founderEmail = "1402272093@qq.com"
-const version = "1.0.10"
+const version = "1.0.11"
 
 var buildCommit = "dev"
 
@@ -67,6 +67,9 @@ type User struct {
 	Tier                  string       `json:"tier"`
 	TierIndex             int          `json:"tier_index"`
 	Credits               int          `json:"credits"`
+	RankCredits           int          `json:"rank_credits"`
+	RankCreditsExpiresAt  string       `json:"rank_credits_expires_at"`
+	AvailableCredits      int          `json:"available_credits"`
 	DailyRemaining        int          `json:"daily_remaining"`
 	DailyAllowance        int          `json:"daily_allowance"`
 	Contributions         int          `json:"contributions"`
@@ -151,6 +154,7 @@ func (s *server) decorate(u *User) *User {
 	if u.Day == dayKey(s.now()) {
 		u.DailyRemaining = max(0, u.DailyAllowance-u.DailyUsed)
 	}
+	u.AvailableCredits = u.DailyRemaining + u.RankCredits + u.Credits
 	return u
 }
 func weekKey(t time.Time) string {
@@ -215,7 +219,7 @@ func (s *server) actor(r *http.Request) *User {
 			return nil
 		}
 	}
-	return s.decorate(u)
+	return s.decorateWithRank(u)
 }
 func (s *server) current(r *http.Request) *User {
 	actor := s.actor(r)
@@ -230,7 +234,7 @@ func (s *server) current(r *http.Request) *User {
 	if err != nil {
 		return nil
 	}
-	s.decorate(user)
+	s.decorateWithRank(user)
 	user.TestMode, user.CanTestMode = true, true
 	return user
 }

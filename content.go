@@ -69,6 +69,7 @@ func gapScan(r scanner, u *User) (*Gap, error) {
 	if g.SourceVisibility == "internal" && !staff {
 		redactInternalSource(g)
 	}
+	redactLockedSource(g)
 	return g, nil
 }
 func uid(u *User) int64 {
@@ -249,6 +250,13 @@ func (s *server) unlock(w http.ResponseWriter, r *http.Request) {
 	if u.Day == day {
 		u.DailyRemaining = max(0, u.DailyAllowance-u.DailyUsed)
 	}
+	if err = expireRankCredits(tx, u.ID, now); err == nil {
+		err = loadRankCredits(tx, u, now)
+	}
+	if err != nil {
+		fail(w, 500, "赠分余额读取失败")
+		return
+	}
 	g, err := gapScan(tx.QueryRow(gapSelect+"WHERE g.id=?", u.ID, u.ID, id), u)
 	if err != nil || !s.canSee(g, u) {
 		fail(w, 404, "信息不存在")
@@ -277,7 +285,8 @@ func (s *server) unlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dailyCost := min(totalCost, u.DailyRemaining)
-	cost := totalCost - dailyCost
+	rankCost := min(totalCost-dailyCost, u.RankCredits)
+	cost := totalCost - dailyCost - rankCost
 	kind := "credit"
 	if u.Credits < cost {
 		fail(w, 402, "阅读额度不足。有效贡献按审核等级可获得 100–800 点，也可购买阅读额度。")
@@ -287,15 +296,20 @@ func (s *server) unlock(w http.ResponseWriter, r *http.Request) {
 	if u.Day != day {
 		used = 0
 	}
-	if dailyCost > 0 {
+	if dailyCost > 0 || rankCost > 0 {
 		kind = "mixed"
 	}
-	if cost == 0 {
+	if dailyCost == totalCost {
 		kind = "daily"
+	} else if rankCost == totalCost {
+		kind = "rank"
 	}
 	_, err = tx.Exec("UPDATE users SET credits=credits-?,day_key=?,daily_used=? WHERE id=? AND credits>=?", cost, day, used+dailyCost, u.ID, cost)
 	if err == nil {
-		_, err = tx.Exec("INSERT INTO unlocks(user_id,gap_id,cost,kind,created_at,daily_cost,day_key) VALUES(?,?,?,?,?,?,?)", u.ID, id, cost, kind, stamp(now), dailyCost, day)
+		_, err = tx.Exec("INSERT INTO unlocks(user_id,gap_id,cost,kind,created_at,daily_cost,day_key,rank_cost) VALUES(?,?,?,?,?,?,?,?)", u.ID, id, cost, kind, stamp(now), dailyCost, day, rankCost)
+	}
+	if err == nil {
+		err = spendRankCredits(tx, u.ID, id, rankCost, now)
 	}
 	if err == nil && dailyCost > 0 {
 		_, err = tx.Exec("INSERT INTO ledger(user_id,gap_id,kind,amount,created_at,note) VALUES(?,?,?,?,?,?)", u.ID, id, "daily_unlock", -dailyCost, stamp(now), "使用今日赠送额度解锁")
@@ -310,7 +324,7 @@ func (s *server) unlock(w http.ResponseWriter, r *http.Request) {
 	u, _ = userScan(s.db.QueryRow("SELECT "+userCols+" FROM users WHERE id=?", u.ID))
 	u.TestMode = isTestMode
 	g, _ = s.oneGap(id, u)
-	send(w, 200, map[string]any{"gap": g, "user": s.decorate(u)})
+	send(w, 200, map[string]any{"gap": g, "user": s.decorateWithRank(u)})
 }
 func (s *server) saveGap(w http.ResponseWriter, r *http.Request) {
 	u := s.require(w, r)
@@ -462,16 +476,16 @@ func (s *server) activity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ledger := []map[string]any{}
-	rows, e := s.db.Query("SELECT kind,amount,created_at,note FROM ledger WHERE user_id=? ORDER BY id DESC LIMIT 100", u.ID)
+	rows, e := s.db.Query("SELECT kind,amount,created_at,note,expires_at FROM ledger WHERE user_id=? ORDER BY id DESC LIMIT 100", u.ID)
 	if e != nil {
 		fail(w, 500, "读取失败")
 		return
 	}
 	for rows.Next() {
-		var kind, created, note string
+		var kind, created, note, expires string
 		var amount int
-		if rows.Scan(&kind, &amount, &created, &note) == nil {
-			ledger = append(ledger, map[string]any{"kind": kind, "amount": amount, "created_at": created, "note": note})
+		if rows.Scan(&kind, &amount, &created, &note, &expires) == nil {
+			ledger = append(ledger, map[string]any{"kind": kind, "amount": amount, "created_at": created, "note": note, "expires_at": expires})
 		}
 	}
 	rows.Close()

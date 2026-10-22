@@ -57,6 +57,9 @@ func (s *server) overview(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		rows.Close()
+		for _, user := range users {
+			s.decorateWithRank(user)
+		}
 		rows, e = s.db.Query("SELECT id,code,max_uses,uses,expires_at,active FROM invites ORDER BY id DESC LIMIT 100")
 		if e != nil {
 			fail(w, 500, "读取失败")

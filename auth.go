@@ -215,7 +215,7 @@ func (s *server) authVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: "infogap_session", Value: session, Path: "/", HttpOnly: true, Secure: s.secure, SameSite: http.SameSiteLaxMode, MaxAge: 30 * 24 * 3600})
-	send(w, 200, map[string]any{"user": s.decorate(u)})
+	send(w, 200, map[string]any{"user": s.decorateWithRank(u)})
 }
 func (s *server) logout(w http.ResponseWriter, r *http.Request) {
 	if c, e := r.Cookie("infogap_session"); e == nil {

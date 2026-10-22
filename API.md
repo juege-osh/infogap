@@ -1,19 +1,19 @@
 # InfoGap v1 contract
-Go 1.26 + modernc SQLite, static buildless web served by Go. Local listen 127.0.0.1:18869. PROD domain https://infogap.osh.lol. JSON all APIs. Times RFC3339 UTC. Errors {error:string}. Cookie session with HttpOnly SameSite Lax secure on production; origin check mutations. Frontend never receives locked body. No remote fonts/CDN/images. Science text source-first.
+Go 1.26 + modernc SQLite, static buildless web served by Go. Local listen 127.0.0.1:18869. PROD domain https://infogap.osh.lol. JSON all APIs. Times RFC3339 UTC. Errors {error:string}. Cookie session with HttpOnly SameSite Lax secure on production; origin check mutations. Frontend never receives locked body or original source identity. No remote fonts/CDN/images. Science text source-first.
 
 GET /api/bootstrap => {user:null|User,stats:{published,sources,members,pending},categories:[string],topic_codes:{主题名:代码},tiers:[{name,min_points,color}],rules:{welcome:10,contribution:100,unlock_costs:{ordinary:1,featured:2,rare:4,exclusive:8},daily_reset_timezone:"Asia/Shanghai"},mail_ready:bool}
-User {id,email,username,role:'admin'|'reviewer'|'member',points,tier,tier_index,credits,daily_allowance,daily_remaining,contributions,featured_contributions,rare_contributions}
+User {id,email,username,role:'admin'|'reviewer'|'member',points,tier,tier_index,credits,rank_credits,rank_credits_expires_at,available_credits,daily_allowance,daily_remaining,contributions,featured_contributions,rare_contributions}
 GET /api/gaps?q=&category=&level=&sort=latest|value&view=all|saved|unlocked|mine&page=1 => {items:[Gap],total,page}
 Gap {id,code,title,summary,category,level:'ordinary'|'featured'|'rare'|'exclusive',evidence:'peer_reviewed'|'preprint'|'official'|'repository'|'unverified',source_name,source_url,published_at,created_at,updated_at,status:'pending'|'published'|'rejected'|'disputed'|'expired',tags:[string],author,unlocked:bool,saved:bool,body?:string,review_note?:string}
-GET /api/gaps/{id} => Gap (no body unless unlocked or owner/admin; metadata published available to guest)
-POST /api/gaps/{id}/unlock {} => {gap:Gap,user:User}; auth required; admin/reviewer free; all content uses daily allowance first, persistent credits second; rare silver index>=2 plus featured_contributions>=1; exclusive diamond index>=6 plus rare_contributions>=1 and last_quality_at within90days. Costs ordinary1/featured2/rare4/exclusive8 and permanent unlock. welcome10 credits. contribution approved =100credits, always. Quality points ordinary20 featured80 rare200 exclusive500; tier minima [0,100,300,700,1400,2500,4000,6500,10000,15000]. No caps reward. No self review reward bypass. Any rank may submit any proposed level.
+GET /api/gaps/{id} => Gap (body and original public source require unlocked/owner/staff; visible preview metadata available to guest; internal source remains staff-only)
+POST /api/gaps/{id}/unlock {} => {gap:Gap,user:User}; auth required; admin/reviewer free; all content uses daily allowance, earliest-expiring rank gifts, then permanent credits; rare requires silver index>=2; exclusive requires diamond index>=6. Costs ordinary1/featured2/rare4/exclusive8 and permanent unlock. welcome10 credits. contribution approved credits ordinary100/featured200/rare400/exclusive800, once. Quality points ordinary20 featured80 rare200 exclusive500; tier minima [0,100,300,700,1400,2500,4000,6500,10000,15000]. No caps reward. No self review reward bypass. Any rank may submit any proposed level.
 POST /api/gaps/{id}/save {} => {saved:bool}
 POST /api/gaps/{id}/report {reason} => {ok:true}
 POST /api/auth/code {email,invite?} => {ok:true}; existing email or verified admin allow no invite. Invite required new other. No code in responses/logs; SMTP config env SMTP_HOST/PORT/USER/PASSWORD/FROM/SECURITY.
 POST /api/auth/verify {email,code,username?,invite?} => {user:User}; atomic invite consume, admin only exact verified 1402272093@qq.com
 POST /api/auth/logout {} => {ok:true}
 POST /api/submissions {title,summary,body,category,source_url,source_name,level,evidence,tags:[string]} => {id,code,status:'pending'}
-GET /api/me/activity => {ledger:[{kind,amount,created_at,note}],submissions:[Gap]}
+GET /api/me/activity => {ledger:[{kind,amount,created_at,note,expires_at}],submissions:[Gap]}
 GET /api/admin/overview => {stats,queue:[Gap],users:[User],invites:[{id,code,max_uses,uses,expires_at,active}],sources:[Source],reports:[...]}
 POST /api/admin/invites {max_uses:1,days:7} => {code,expires_at}
 POST /api/admin/invites/{id}/revoke {} => {ok:true}
@@ -90,3 +90,23 @@ GET /api/admin/overview additionally returns summary_jobs:{pending,completed,fai
 `POST /api/billing/orders` 额外支持站长在管理员模式传入 `{plan:"payment_test",channel:"alipay"}`。金额由服务端固定为 1 分，订单 `type="payment_test"`、`days=0`、`credits=0`；核验成功只更新订单和支付事件，不发放会员或额度。普通成员、审核员和测试用户均无法创建。测试套餐不出现在普通套餐目录。
 
 API 错误包含 `request_id`，并通过 `X-Request-ID` 返回。服务器错误日志记录相同编号、接口路由、状态和耗时，不记录邮箱、验证码或正文。
+
+
+## 段位赠分有效期与购买快照
+
+`User.credits` 始终表示永久积分。`rank_credits` 为当前有效段位赠分，`rank_credits_expires_at` 为最近有余额批次的到期时间（RFC3339，无则空）。`available_credits = daily_remaining + rank_credits + credits`。解锁按每日赠分、最快到期段位赠分、永久积分依次扣减。
+
+当前段位计划仍为 `rank_<tier>_<months>`，1/3/6/12个月对应30/90/180/365天。年付每期最终赠分按青铜至大师为2000/4000/6000/8000/10000/12000/14000，不再次叠加20%；其他时长采用 `round(年付最终值 × (100+加成) / 120)`，加成0/5/10/20。前端直接展示计划的 `monthly_credits`，不自行计算。价格与时长不变。
+
+`GET /api/billing/rank-status` 增加 `batches:[{id,amount,remaining,granted_at,expires_at,policy_version:2}]`、`gift_policy_version:2`、`gift_valid_days:30`，原 `periods/next_gift_at/user` 保留。只返回有效未用完批次，按最近到期排序。每期从计划应到账时起30天有效；补发过期月份不会复活。升档补差新批次从支付确认生效起30天，已有批次不续期。
+
+`GET /api/me/activity` 的 `ledger` 项新增 `expires_at`（无则空）。新段位类型为 `rank_gift/rank_unlock/rank_refund/rank_expire`；旧 `rank_monthly_gift` 保留历史永久赠分含义。已发永久余额不追溯扣回，购买和贡献奖励仍永久。退款只回原来源，过期段位赠分不退为永久积分。
+
+已有支付订单的金额、时长和每期赠分快照不改；待付款旧订单复用原快照，已支付旧订单未来期数按原数量发放到新规则批次。迁移将旧赠分事件标为政策1，新批次/事件明确为政策2，不重发既有赠分。详细结算与迁移规则见 `docs/billing.md`。
+
+
+## 1.0.11 原始来源随详情解锁
+
+未解锁的列表、详情、收藏和搜索响应不提供原始来源：`source_name/source_url` 为空，正文不返回，预览中的原来源名称、链接和域名同步清理。证据类型仍可显示，例如预印本、已发表论文。搜索、订阅标签及旅行筛选使用相同清理规则，不能通过条件推断被锁定来源。
+
+已解锁者及投稿者本人可看公开来源，管理员和审核员可直接核查。`source_visibility=internal` 的私人社区来源仍仅审核人员可见，普通成员即使已解锁也不会获得其原始出处。来源字段保留在数据库，响应清理不改原始记录。

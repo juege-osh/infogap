@@ -6,6 +6,7 @@ import (
 	"html"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"modernc.org/sqlite"
@@ -17,11 +18,17 @@ func init() {
 	sqlite.MustRegisterDeterministicScalarFunction("infogap_public_text", 4, func(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
 		text, _ := args[0].(string)
 		visibility, _ := args[1].(string)
-		if visibility != "internal" {
+		if visibility != "internal" && visibility != "locked" && visibility != "internal_locked" {
 			return text, nil
 		}
 		name, _ := args[2].(string)
 		link, _ := args[3].(string)
+		if visibility == "locked" {
+			return scrubLockedLinks(privateSourceFilter(name, link).scrubWith(text, "来源已锁定")), nil
+		}
+		if visibility == "internal_locked" {
+			return scrubLockedLinks(privateSourceFilter(name, link).scrub(text)), nil
+		}
 		return privateSourceFilter(name, link).scrub(text), nil
 	})
 }
@@ -30,7 +37,15 @@ func publicTextSQL(expression string, u *User) string {
 	if u != nil && (u.Role == "admin" || u.Role == "reviewer") {
 		return expression
 	}
-	return "infogap_public_text(" + expression + ",g.source_visibility,g.source_name,g.source_url)"
+	// Only a server-authenticated numeric ID is interpolated. Keeping the CASE
+	// parameter-free preserves every caller's existing argument ordering.
+	visibility := "CASE WHEN g.source_visibility='internal' THEN 'internal_locked' ELSE 'locked' END"
+	if u != nil && u.ID > 0 {
+		id := strconv.FormatInt(u.ID, 10)
+		authorized := "g.author_id=" + id + " OR EXISTS(SELECT 1 FROM unlocks source_access WHERE source_access.gap_id=g.id AND source_access.user_id=" + id + ")"
+		visibility = "CASE WHEN " + authorized + " THEN CASE WHEN g.source_visibility='internal' THEN 'internal' ELSE 'public' END ELSE CASE WHEN g.source_visibility='internal' THEN 'internal_locked' ELSE 'locked' END END"
+	}
+	return "infogap_public_text(" + expression + "," + visibility + ",g.source_name,g.source_url)"
 }
 
 func defaultSourceVisibility(raw string) string {
@@ -90,12 +105,26 @@ func privateSourceFilter(name, link string) sourceFilter {
 var privateMarkdownLink = regexp.MustCompile(`!?\[([^\]\n]*)\]\(\s*<?([^\n)]+)>?\s*\)`)
 var privateReferenceLink = regexp.MustCompile(`(?m)^\s*\[[^\]\n]+\]:[^\n]*$`)
 var sourceURLToken = regexp.MustCompile(`(?i)(?:(?:https?://|//|www\.)[^\s<>"'\[\]()]+|(?:[\p{L}\p{N}-]+\.)+[\p{L}]{2,}/[^\s<>"'\[\]()]*)`)
+var lockedURLToken = regexp.MustCompile(`(?i)(?:[a-z][a-z0-9+.-]*://[^\s<>"'\[\]()]+|//[^\s<>"'\[\]()]+|(?:[\p{L}\p{N}-]+\.)+[\p{L}]{2,}(?::[0-9]+)?(?:/[^\s<>"'\[\]()]*)?)`)
+
+// A locked preview may contain several evidence links unrelated to source_url.
+// None of their targets may become a shortcut around the unlock boundary.
+func scrubLockedLinks(text string) string {
+	text = normalizeSourceText(text)
+	text = privateMarkdownLink.ReplaceAllString(text, "$1")
+	text = privateReferenceLink.ReplaceAllString(text, "")
+	return lockedURLToken.ReplaceAllString(text, "来源已锁定")
+}
 
 func (f sourceFilter) contains(text string) bool {
 	return f.sensitive != nil && f.sensitive.MatchString(normalizeSourceText(text))
 }
 
 func (f sourceFilter) scrub(text string) string {
+	return f.scrubWith(text, "社区线索")
+}
+
+func (f sourceFilter) scrubWith(text, replacement string) string {
 	if f.sensitive == nil || text == "" {
 		return text
 	}
@@ -103,7 +132,7 @@ func (f sourceFilter) scrub(text string) string {
 	text = privateMarkdownLink.ReplaceAllStringFunc(text, func(link string) string {
 		parts := privateMarkdownLink.FindStringSubmatch(link)
 		if f.contains(parts[2]) {
-			return f.sensitive.ReplaceAllString(parts[1], "社区线索")
+			return f.sensitive.ReplaceAllString(parts[1], replacement)
 		}
 		return link
 	})
@@ -115,11 +144,11 @@ func (f sourceFilter) scrub(text string) string {
 	})
 	text = sourceURLToken.ReplaceAllStringFunc(text, func(link string) string {
 		if f.contains(link) {
-			return "社区线索"
+			return replacement
 		}
 		return link
 	})
-	return f.sensitive.ReplaceAllString(text, "社区线索")
+	return f.sensitive.ReplaceAllString(text, replacement)
 }
 
 func internalSourceRemains(g *Gap) bool {
@@ -138,6 +167,22 @@ func redactInternalSource(g *Gap) {
 	g.Author = f.scrub(g.Author)
 	for i, tag := range g.Tags {
 		g.Tags[i] = f.scrub(tag)
+	}
+	g.SourceName, g.SourceURL, g.ReviewNote = "", "", ""
+}
+
+// Call after gapScan has computed owner/staff/unlock access and applied the
+// stronger internal-source rule. Response redaction never changes stored data.
+func redactLockedSource(g *Gap) {
+	if g == nil || g.Unlocked {
+		return
+	}
+	f := privateSourceFilter(g.SourceName, g.SourceURL)
+	g.Title = scrubLockedLinks(f.scrubWith(g.Title, "来源已锁定"))
+	g.Summary = scrubLockedLinks(f.scrubWith(g.Summary, "来源已锁定"))
+	g.Author = scrubLockedLinks(f.scrubWith(g.Author, "来源已锁定"))
+	for i, tag := range g.Tags {
+		g.Tags[i] = scrubLockedLinks(f.scrubWith(tag, "来源已锁定"))
 	}
 	g.SourceName, g.SourceURL, g.ReviewNote = "", "", ""
 }

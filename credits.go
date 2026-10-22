@@ -74,6 +74,9 @@ func refundReadingCredits(tx *sql.Tx, gapID int64, now time.Time) error {
 		return err
 	}
 	for _, item := range items {
+		if err = refundRankCredits(tx, item.user, gapID, now); err != nil {
+			return err
+		}
 		if item.stored > 0 {
 			if _, err = tx.Exec("UPDATE users SET credits=credits+? WHERE id=?", item.stored, item.user); err != nil {
 				return err

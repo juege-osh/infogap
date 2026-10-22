@@ -452,7 +452,7 @@ func (s *server) billingStatus(w http.ResponseWriter, r *http.Request) {
 	billingDisplayExpiry(o, s.now())
 	refreshed, e := userScan(s.db.QueryRowContext(r.Context(), "SELECT "+userCols+" FROM users WHERE id=?", u.ID))
 	if e == nil {
-		u = s.decorate(refreshed)
+		u = s.decorateWithRank(refreshed)
 	}
 	send(w, 200, map[string]any{"order": o, "user": u, "message": message})
 }

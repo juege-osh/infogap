@@ -9,7 +9,7 @@ func TestRankAnnualGiftsRenewalAndExpiry(t *testing.T) {
 	s, _, id, cookie := billingFixture(t)
 	start := s.now()
 	o := billingPurchase(t, s, cookie, "rank_7_12", "alipay")
-	if o.AmountCents != 18800 || o.Days != 365 || o.MonthlyCredits != 12000 {
+	if o.AmountCents != 18800 || o.Days != 365 || o.MonthlyCredits != 14000 {
 		t.Fatalf("wrong plan %+v", o)
 	}
 	for i := 0; i < 2; i++ {
@@ -20,7 +20,7 @@ func TestRankAnnualGiftsRenewalAndExpiry(t *testing.T) {
 	var credits, count int
 	var until string
 	s.db.QueryRow("SELECT credits,paid_until FROM users WHERE id=?", id).Scan(&credits, &until)
-	if credits != 12010 || until != stamp(start.AddDate(0, 0, 365)) {
+	if credits != 10 || rankBalance(t, s, id) != 14000 || until != stamp(start.AddDate(0, 0, 365)) {
 		t.Fatal(credits, until)
 	}
 	s.db.QueryRow("SELECT COUNT(*) FROM rank_periods WHERE user_id=?", id).Scan(&count)
@@ -33,7 +33,7 @@ func TestRankAnnualGiftsRenewalAndExpiry(t *testing.T) {
 		t.Fatal(e)
 	}
 	s.db.QueryRow("SELECT credits FROM users WHERE id=?", id).Scan(&credits)
-	if credits != 12010 {
+	if credits != 10 || rankBalance(t, s, id) != 14000 {
 		t.Fatal(credits)
 	}
 	s.now = func() time.Time { return start.AddDate(0, 0, 366) }
@@ -44,7 +44,7 @@ func TestRankAnnualGiftsRenewalAndExpiry(t *testing.T) {
 		t.Fatal(e)
 	}
 	s.db.QueryRow("SELECT credits FROM users WHERE id=?", id).Scan(&credits)
-	if credits != 144310 {
+	if credits != 10 || rankBalance(t, s, id) != 1667 {
 		t.Fatal(credits)
 	}
 	s.db.Exec("UPDATE users SET points=700 WHERE id=?", id)
@@ -57,7 +57,7 @@ func TestRankAnnualGiftsRenewalAndExpiry(t *testing.T) {
 		t.Fatal(e)
 	}
 	s.decorate(u)
-	if u.PaidTier != 0 || u.TierIndex != 3 || u.Credits != 144310 {
+	if u.PaidTier != 0 || u.TierIndex != 3 || u.Credits != 10 || rankBalance(t, s, id) != 0 {
 		t.Fatalf("expiry %+v", u)
 	}
 }
@@ -87,8 +87,19 @@ func TestRankUpgradeIsProratedAndIdempotent(t *testing.T) {
 	}
 	var credits, tier int
 	s.db.QueryRow("SELECT credits,paid_tier FROM users WHERE id=?", id).Scan(&credits, &tier)
-	if credits != 5160 || tier != 7 {
+	if credits != 10 || tier != 7 || rankBalance(t, s, id) != 6667 {
 		t.Fatal(credits, tier)
+	}
+	s.now = func() time.Time { return start.Add(31 * 24 * time.Hour) }
+	if e := s.syncRankUser(id); e != nil {
+		t.Fatal(e)
+	}
+	if rankBalance(t, s, id) != 5000 {
+		t.Fatal("upgrade extended the original batch or lost the new supplement")
+	}
+	s.now = func() time.Time { return start.Add(45 * 24 * time.Hour) }
+	if rankBalance(t, s, id) != 0 {
+		t.Fatal("upgrade supplement survived its 30-day expiry")
 	}
 }
 
