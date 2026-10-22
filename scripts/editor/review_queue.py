@@ -9,8 +9,10 @@ def digest(r):return hashlib.sha256(json.dumps({k:r[k] for k in ('title_zh','sum
 def main():
  ap=argparse.ArgumentParser();ap.add_argument('--run-dir',required=True);ap.add_argument('--limit',type=int,default=1000);a=ap.parse_args();out=pathlib.Path(a.run_dir).resolve();os.environ['INFOGAP_RUN_DIR']=str(out);assert 1<=a.limit<=1000
  state=ROOT/'state/official-editor';state.mkdir(parents=True,exist_ok=True)
- with (state/'review.lock').open('a') as lock:
-  try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+ with (state/'editor.lock').open('a') as generation_lock, (state/'review.lock').open('a') as lock:
+  try:
+   fcntl.flock(generation_lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+   fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
   except BlockingIOError:print('{"skipped":"another_official_queue_running"}');return 2
   day=datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).date().isoformat();baseline=json.loads((state/(day+'.json')).read_text())['baseline'];guard=BudgetGuard.from_record(json.loads((state/(day+'.json')).read_text()),day=day)
   spec=importlib.util.spec_from_file_location('engine',HERE/'runner.py');engine=importlib.util.module_from_spec(spec);spec.loader.exec_module(engine)
@@ -18,7 +20,7 @@ def main():
   saved=out/'reviews.jsonl';old=[json.loads(l) for l in saved.read_text().splitlines()] if saved.exists() else [];done={(r['id'],r['draft_hash']) for r in old};pending=[r for r in drafts if (r['id'],digest(r)) not in done]
   batches=[pending[i:i+5] for i in range(0,len(pending),5)];number=len(list(out.glob('review-*-events.jsonl')))+1
   def task(batch,home,n):
-   payload=[{'id':r['id'],'title':sources[r['id']]['title'],'source_text':sources[r['id']]['text'],'source_date':sources[r['id']]['source_date'],'topic':r['topic'],'evidence':r['evidence'],'draft_title':r['title_zh'],'draft_summary':r['summary'],'draft_body':r['body']} for r in batch]
+   payload=[{'id':r['id'],'title':sources[r['id']]['title'],'source_text':sources[r['id']]['text'],'source_date':sources[r['id']]['source_date'],'archive_context':sources[r['id']].get('archive_context',''),'topic':r['topic'],'evidence':r['evidence'],'draft_title':r['title_zh'],'draft_summary':r['summary'],'draft_body':r['body']} for r in batch]
    env=engine.safeenv(home);env['INFOGAP_REVIEW_MODE']='1';log=out/('review-%04d-events.jsonl'%n)
    with log.open('w') as output:
     process=subprocess.Popen([sys.executable,str(HERE/'infer_appserver.py')],stdin=subprocess.PIPE,stdout=output,stderr=subprocess.DEVNULL,text=True,env=env,start_new_session=True)
