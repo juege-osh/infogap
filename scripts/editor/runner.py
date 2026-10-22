@@ -42,7 +42,7 @@ class Quota:
   except subprocess.TimeoutExpired:self.p.kill();self.p.wait()
 
 def run_batch(batch,home,work,number):
- schema=work/'schema.json';schema.write_text(json.dumps(SCHEMA));payload=[{k:x[k] for k in ('id','title','text','topic','evidence')} for x in batch]
+ schema=work/'schema.json';schema.write_text(json.dumps(SCHEMA));payload=[dict({k:x[k] for k in ('id','title','text','topic','evidence')},source_date=x.get('source_date',''),archive_context=x.get('archive_context',{})) for x in batch]
  command=[sys.executable,str(pathlib.Path(__file__).with_name('infer_appserver.py'))];start=time.monotonic();log=OUT/('batch-%04d-events.jsonl'%number);err=OUT/('batch-%04d-stderr.txt'%number)
  with log.open('w') as stdout,err.open('w') as stderr:
   p=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=stdout,stderr=stderr,env=safeenv(home),text=True,start_new_session=True)
