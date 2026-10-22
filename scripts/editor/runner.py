@@ -37,9 +37,12 @@ class Quota:
   ttl=min(2,max(0,max_age))
   if ttl and self._cache is not None and time.monotonic()-self._cache_at<ttl:return dict(self._cache)
   self._cache=None
-  try:d=self.rpc('account/rateLimits/read',{})
-  except RuntimeError:
-   time.sleep(2);d=self.rpc('account/rateLimits/read',{})
+  for attempt in range(3):
+   try:d=self.rpc('account/rateLimits/read',{});break
+   except RuntimeError:
+    if attempt==2:raise
+    # No new model work is dispatched while a fresh official read is retried.
+    time.sleep(2*(attempt+1))
   r=d.get('rateLimitsByLimitId',{}).get('codex') or d['rateLimits'];w=[r.get('primary'),r.get('secondary')];weekly=next((x for x in w if x and x.get('windowDurationMins')==10080),None)
   if not weekly:raise RuntimeError('weekly quota not available')
   result={'at':stamp(),'used_percent':weekly['usedPercent'],'resets_at':weekly['resetsAt'],'credits':(r.get('credits') or {}).get('balance'),'quota_reached':bool(r.get('rateLimitReachedType')),'allowed':d.get('ordinaryUsageAllowed')};append('quota.jsonl',result);self._cache=dict(result);self._cache_at=time.monotonic();return result
