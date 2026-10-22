@@ -120,7 +120,7 @@ function changeDuration(value, checked = true, insideForm = true) {
   await run('renderMembership(1)');
   assert(planInputs.every(input => input.disabled));
   assert.equal((element('#membership-plans').innerHTML.match(/name="rank_duration"/g) || []).length, 4);
-  assert.match(css, /\.rank-duration-grid\{display:grid;grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/);
+  assert.match(css, /\.rank-duration-grid\{[^}]*display:grid;[^}]*grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/);
   assert.match(css, /@media\(max-width:760px\)\{\.rank-duration-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
   assert(css.includes('input:focus-visible+.rank-duration-card'));
   assert(css.includes('input:checked+.rank-duration-card'));

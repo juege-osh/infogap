@@ -160,6 +160,7 @@ func (s *server) authVerify(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, "用户名需为 2–24 个字符")
 			return
 		}
+		var inviteID int64
 		if in.Email != founderEmail {
 			res, e := tx.Exec("UPDATE invites SET uses=uses+1 WHERE code=? AND active=1 AND uses<max_uses AND expires_at>?", in.Invite, stamp(now))
 			if e != nil {
@@ -171,18 +172,22 @@ func (s *server) authVerify(w http.ResponseWriter, r *http.Request) {
 				fail(w, 403, "邀请码无效、已用完或已过期")
 				return
 			}
+			if e = tx.QueryRow("SELECT id FROM invites WHERE code=?", in.Invite).Scan(&inviteID); e != nil {
+				fail(w, 500, "加入失败")
+				return
+			}
 		}
 		role := "member"
 		if in.Email == founderEmail {
 			role = "admin"
 		}
-		res, e := tx.Exec("INSERT INTO users(email,username,role,created_at) VALUES(?,?,?,?)", in.Email, in.Username, role, stamp(now))
+		res, e := tx.Exec("INSERT INTO users(email,username,role,credits,created_at) VALUES(?,?,?,0,?)", in.Email, in.Username, role, stamp(now))
 		if e != nil {
 			fail(w, 409, "用户名已被使用，请换一个")
 			return
 		}
 		uid, _ := res.LastInsertId()
-		_, err = tx.Exec("INSERT INTO ledger(user_id,kind,amount,created_at,note) VALUES(?,'welcome',10,?,'新人体验额度')", uid, stamp(now))
+		err = grantInviteCampaign(tx, inviteID, uid, in.Email, now)
 		if err != nil {
 			fail(w, 500, "加入失败")
 			return

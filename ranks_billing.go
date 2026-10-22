@@ -196,6 +196,12 @@ func grantRankGifts(tx *sql.Tx, user int64, now time.Time) error {
 		}
 		next.Close()
 	}
+	// Registration campaigns grant temporary rank only; they do not participate
+	// in rank_periods or the recurring credit gift loop above.
+	tier, until, e = mergeInviteCampaignRank(tx, user, now, tier, until)
+	if e != nil {
+		return e
+	}
 	_, e = tx.Exec("UPDATE users SET paid_tier=?,paid_until=? WHERE id=?", tier, until, user)
 	return e
 }
