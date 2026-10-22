@@ -14,6 +14,14 @@ class BudgetGuard:
             raise ValueError('必须预留额度缓冲')
         self._validate(baseline)
 
+    @classmethod
+    def from_record(cls, record, day=None):
+        if day is not None and record.get('day') != day:
+            raise ValueError('额度账本日期不一致')
+        return cls(record['baseline'], day=day,
+                   max_points=record.get('max_points', 5),
+                   reserve_points=record.get('reserve_points', 1))
+
     @staticmethod
     def _validate(snapshot):
         used = snapshot.get('used_percent')

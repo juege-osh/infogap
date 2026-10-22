@@ -52,7 +52,7 @@ def main():
   # Never create/reset a baseline here. Existing daily ledger owns the budget.
   baseline_file=state/(day+'.json')
   if not baseline_file.exists():print(json.dumps({'stopped':'daily_baseline_unavailable'}));return 2
-  guard=BudgetGuard(json.loads(baseline_file.read_text())['baseline'])
+  guard=BudgetGuard.from_record(json.loads(baseline_file.read_text()),day=day)
   auth=pathlib.Path.home()/'.codex/auth.json'
   auth_data=json.loads(auth.read_text())
   if auth_data.get('auth_mode')!='chatgpt' or not auth_data.get('tokens'):print(json.dumps({'stopped':'official_account_unavailable'}));return 2

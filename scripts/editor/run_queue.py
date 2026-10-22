@@ -28,7 +28,7 @@ def main():
    if day()=='2026-10-22' and historical.exists():baseline=json.loads(historical.read_text().splitlines()[0])
    ledger.write_text(json.dumps({'day':day(),'baseline':baseline,'max_points':5,'reserve_points':1},ensure_ascii=False,indent=2))
   from budget import BudgetGuard
-  ok,reason=BudgetGuard(baseline).check(initial)
+  ok,reason=BudgetGuard.from_record(json.loads(ledger.read_text()),day=day()).check(initial)
   if not ok:print(json.dumps({'stopped':reason}));return 2
   env=dict(os.environ,INFOGAP_DAY_ANCHOR=str(baseline['used_percent']),INFOGAP_MAX_DONE=str(a.target),INFOGAP_WORKERS=str(a.workers),INFOGAP_BATCH_SIZE='10')
   with (out/'run.log').open('a') as log:r=subprocess.run([os.sys.executable,str(pathlib.Path(__file__).with_name('runner.py'))],env=env,stdout=log,stderr=subprocess.STDOUT)

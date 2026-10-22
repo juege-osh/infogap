@@ -12,7 +12,7 @@ def main():
  with (state/'review.lock').open('a') as lock:
   try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
   except BlockingIOError:print('{"skipped":"another_official_queue_running"}');return 2
-  day=datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).date().isoformat();baseline=json.loads((state/(day+'.json')).read_text())['baseline'];guard=BudgetGuard(baseline)
+  day=datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).date().isoformat();baseline=json.loads((state/(day+'.json')).read_text())['baseline'];guard=BudgetGuard.from_record(json.loads((state/(day+'.json')).read_text()),day=day)
   spec=importlib.util.spec_from_file_location('engine',HERE/'runner.py');engine=importlib.util.module_from_spec(spec);spec.loader.exec_module(engine)
   sources={s['id']:s for s in json.loads((out/'eligible-source-corpus.json').read_text())};drafts=[r for r in map(json.loads,(out/'results.jsonl').read_text().splitlines()) if r['usable']][:a.limit]
   saved=out/'reviews.jsonl';old=[json.loads(l) for l in saved.read_text().splitlines()] if saved.exists() else [];done={(r['id'],r['draft_hash']) for r in old};pending=[r for r in drafts if (r['id'],digest(r)) not in done]

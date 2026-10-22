@@ -27,4 +27,11 @@ class BudgetTests(unittest.TestCase):
   self.assertEqual(self.check(credits=None),(False,'credit_reading_unavailable'))
  def test_new_day_requires_explicit_daily_ledger(self):
   self.assertEqual(self.guard.check(self.base,day='2026-10-23'),(False,'day_changed_requires_new_daily_ledger'))
+ def test_explicit_daily_budget_extension_keeps_original_baseline(self):
+  record={'day':'2026-10-22','baseline':self.base,'max_points':10,'reserve_points':1}
+  guard=BudgetGuard.from_record(record,day='2026-10-22')
+  self.assertEqual(guard.baseline['used_percent'],67)
+  self.assertTrue(guard.check(dict(self.base,used_percent=75),day='2026-10-22')[0])
+  self.assertFalse(guard.check(dict(self.base,used_percent=76),day='2026-10-22')[0])
+  with self.assertRaises(ValueError):BudgetGuard.from_record(record,day='2026-10-23')
 if __name__=='__main__':unittest.main()

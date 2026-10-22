@@ -3,7 +3,7 @@
 import sys,concurrent.futures,datetime,decimal,hashlib,json,os,pathlib,selectors,signal,subprocess,tempfile,time
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 OUT=pathlib.Path(os.environ['INFOGAP_RUN_DIR']).resolve();OUT.mkdir(parents=True,exist_ok=True)
-CLI='/Users/rengang/.local/bin/codex';MODEL='gpt-6.1-sol';ANCHOR=int(os.environ.get('INFOGAP_DAY_ANCHOR','0'));STOP_AT=ANCHOR+4 # reserve one displayed percentage point within the user's 5-point budget
+CLI='/Users/rengang/.local/bin/codex';MODEL='gpt-6.1-sol';ANCHOR=int(os.environ.get('INFOGAP_DAY_ANCHOR','0'))
 SAMPLES=json.loads((OUT/'eligible-source-corpus.json').read_text())
 from contract import SCHEMA, INSTRUCTION as PROMPT, validate as validate_longform
 from budget import BudgetGuard
@@ -95,9 +95,9 @@ def main():
    p=base/('home'+str(n));p.mkdir(mode=0o700);(p/'auth.json').write_bytes(auth);os.chmod(p/'auth.json',0o600);homes.append(p)
   work=OUT/'empty-work';work.mkdir(exist_ok=True);monitor=Quota(homes[-1]);active={};reason='completed';failures=0
   try:
-   initial=monitor.read();reset=initial['resets_at'];credit=initial['credits'];guard=BudgetGuard(dict(initial,used_percent=ANCHOR))
+   initial=monitor.read();reset=initial['resets_at'];credit=initial['credits'];ledger=ROOT/'state/official-editor'/(datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).date().isoformat()+'.json');guard=BudgetGuard.from_record(json.loads(ledger.read_text())) if ledger.exists() else BudgetGuard(dict(initial,used_percent=ANCHOR));stop_at=ANCHOR+guard.max_points-guard.reserve_points
    if initial['used_percent']<ANCHOR:raise RuntimeError('quota baseline or reset changed')
-   print(json.dumps({'start':initial,'already_completed':len(done),'pending':len(pending),'target':max_done,'stop_at':STOP_AT}),flush=True)
+   print(json.dumps({'start':initial,'already_completed':len(done),'pending':len(pending),'target':max_done,'stop_at':stop_at}),flush=True)
    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
     free=list(range(workers));stop=False
     while (pending and sum(x['usable'] for x in done.values())<max_done and not stop) or active:
