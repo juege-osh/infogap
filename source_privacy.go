@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"modernc.org/sqlite"
 )
@@ -43,6 +44,11 @@ func publicTextSQL(expression string, u *User) string {
 	if u != nil && u.ID > 0 {
 		id := strconv.FormatInt(u.ID, 10)
 		authorized := "g.author_id=" + id + " OR EXISTS(SELECT 1 FROM unlocks source_access WHERE source_access.gap_id=g.id AND source_access.user_id=" + id + ")"
+		if u.ReadingActive {
+			if _, err := time.Parse(time.RFC3339, u.ReadingCutoff); err == nil {
+				authorized += " OR (g.status='published' AND g.released_at<>'' AND julianday(g.released_at)<=julianday('" + u.ReadingCutoff + "'))"
+			}
+		}
 		visibility = "CASE WHEN " + authorized + " THEN CASE WHEN g.source_visibility='internal' THEN 'internal' ELSE 'public' END ELSE CASE WHEN g.source_visibility='internal' THEN 'internal_locked' ELSE 'locked' END END"
 	}
 	return "infogap_public_text(" + expression + "," + visibility + ",g.source_name,g.source_url)"

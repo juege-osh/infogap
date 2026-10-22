@@ -95,8 +95,8 @@ function clickTarget(selector, item) { return { closest: target => target === se
     { id: 9, code: 'ACCIDENTAL-CAMPAIGN-CODE', campaign: true, campaign_email_count: 2, active: true, max_uses: 25, uses: 1, emails: campaign.emails }] };
   run('state.admin=data;renderAdminContent()');
   const html = element('#admin-content').innerHTML;
-  assert(html.includes('青铜 30 天'));
-  assert(html.includes('1,000 永久积分'));
+  assert(html.includes('到账后 30 天有效'));
+  assert(html.includes('1,000 邀请赠分'));
   assert(html.includes('已有账号不自动补发'));
   assert(html.includes('名单内外共用，最多 100 次'));
   assert(html.includes('name="campaign" type="checkbox"'));
@@ -124,7 +124,7 @@ function clickTarget(selector, item) { return { closest: target => target === se
   assert(panel.innerHTML.includes('one@example.test'));
   assert(panel.innerHTML.includes('已领取'));
   assert(panel.innerHTML.includes('未领取'));
-  assert(panel.innerHTML.includes('30 天 + 1,000 永久积分'));
+  assert(panel.innerHTML.includes('1,000 邀请赠分，到账后 30 天有效'));
   assert.equal(campaignButton.attributes['aria-expanded'], 'true');
   await handlers.click({ target: clickTarget('[data-invite-campaign]', campaignButton) });
   assert.equal(panel.hidden, true);
@@ -196,10 +196,10 @@ function clickTarget(selector, item) { return { closest: target => target === se
   assert(element('#new-invite').innerHTML.includes('长期有效 · 不限次数，直到站长停用'));
   assert(!element('#admin-content').innerHTML.includes('时间待核对 到期'), 'fixed history must not render an empty expiry as an unknown date');
   run('renderRules()');
-  assert(element('#main').innerHTML.includes('永久积分初始为 0，每日赠送 1 额度'));
+  assert(element('#main').innerHTML.includes('永久积分初始为 0，每日赠 1 积分'));
   assert(!element('#main').innerHTML.includes('10 长期额度'));
   assert(!source.includes('<div class="welcome-number">10'));
-  assert.equal(run("ledgerName('invite_campaign')"), '邀请活动奖励 · 永久积分');
+  assert.equal(run("ledgerName('invite_campaign')"), '历史邀请奖励');
   assert.equal(run("ledgerName('welcome')"), '历史新人长期额度');
   assert(css.includes('.invite-campaign-fields[hidden],.invite-campaign-panel[hidden]{display:none}'));
   assert(css.includes('.invite-campaign-table td{overflow-wrap:anywhere'));

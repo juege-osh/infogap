@@ -79,7 +79,7 @@ func TestBillingPlansDisabledNoMock(t *testing.T) {
 	_, cookie := account(t, s, "disabled@example.org", "member", 10)
 	w := request(s, "GET", "/api/billing/plans", nil, "")
 	mustStatus(t, w, 200)
-	if !strings.Contains(w.Body.String(), `"enabled":false`) || !strings.Contains(w.Body.String(), `"amount_cents":18800`) {
+	if !strings.Contains(w.Body.String(), `"enabled":false`) || !strings.Contains(w.Body.String(), `"amount_cents":8800`) {
 		t.Fatal(w.Body)
 	}
 	mustStatus(t, request(s, "POST", "/api/billing/orders", map[string]string{"plan": "monthly", "channel": "alipay"}, cookie), 503)
@@ -91,11 +91,11 @@ func TestBillingPlansDisabledNoMock(t *testing.T) {
 }
 func TestBillingCheckoutPriceOwnershipReuse(t *testing.T) {
 	s, f, _, cookie := billingFixture(t)
-	o := billingPurchase(t, s, cookie, "rank_3_1", "alipay")
-	if o.AmountCents != 1600 || o.Days != 30 || len(o.ID) > 32 || o.PayURL != "" || o.PaymentKind != "qr" || o.QRPayload == "" {
+	o := billingPurchase(t, s, cookie, "reading_1", "alipay")
+	if o.AmountCents != 1800 || o.Days != 30 || len(o.ID) > 32 || o.PayURL != "" || o.PaymentKind != "qr" || o.QRPayload == "" {
 		t.Fatalf("wrong order: %+v", o)
 	}
-	again := billingPurchase(t, s, cookie, "rank_3_1", "alipay")
+	again := billingPurchase(t, s, cookie, "reading_1", "alipay")
 	if again.ID != o.ID || f.creates != 1 {
 		t.Fatal("duplicate checkout")
 	}
@@ -105,7 +105,7 @@ func TestBillingCheckoutPriceOwnershipReuse(t *testing.T) {
 	}
 	_, otherCookie := account(t, s, "otherpayer@example.org", "member", 10)
 	mustStatus(t, request(s, "GET", "/api/billing/orders/"+o.ID, nil, otherCookie), 404)
-	mustStatus(t, request(s, "POST", "/api/billing/orders", map[string]any{"plan": "rank_3_1", "channel": "alipay", "amount_cents": 1}, cookie), 400)
+	mustStatus(t, request(s, "POST", "/api/billing/orders", map[string]any{"plan": "reading_1", "channel": "alipay", "amount_cents": 1}, cookie), 400)
 }
 
 func TestBillingOnlyAdvertisesAndCreatesAlipay(t *testing.T) {
@@ -258,8 +258,8 @@ func TestBillingCallbackGrantsOnlySubscriptionOnce(t *testing.T) {
 	}
 	u, _ := userScan(s.db.QueryRow("SELECT "+userCols+" FROM users WHERE id=?", uid))
 	u = s.decorate(u)
-	if !u.IsMember || !u.Entitlements.Subscriptions || u.Entitlements.DelayHours != 72 {
-		t.Fatalf("membership altered content timing: %+v", u)
+	if !u.IsMember || u.ReadingActive || u.Entitlements.DelayHours != 0 {
+		t.Fatalf("legacy membership record changed or gained reading access: %+v", u)
 	}
 }
 func TestBillingRejectMismatchedSuccessfulPayment(t *testing.T) {
@@ -423,8 +423,8 @@ func TestBillingCreditPlansAndCheckoutUseServerPrices(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog.Plans) != 31 {
-		t.Fatalf("expected 28 rank plans and 3 credit packs: %s", w.Body)
+	if len(catalog.Plans) != 7 {
+		t.Fatalf("expected 4 reading plans and 3 credit packs: %s", w.Body)
 	}
 	for _, test := range []struct {
 		id     string
@@ -460,7 +460,7 @@ func TestBillingCreditsGrantOnlyStoredQuantityAndRefreshUser(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.Order.Type != "credits" || response.Order.Status != "success" || response.Order.Days != 0 || response.User.Credits != 3510 || response.User.Points != 120 || response.User.MembershipUntil != until || response.User.Entitlements.DelayHours != 48 {
+	if response.Order.Type != "credits" || response.Order.Status != "success" || response.Order.Days != 0 || response.User.Credits != 3510 || response.User.Points != 120 || response.User.MembershipUntil != until || response.User.Entitlements.DelayHours != 0 || response.User.ReadingActive {
 		t.Fatalf("credit payment altered unrelated rights: %s", w.Body)
 	}
 	var membershipGrants, creditGrants, ledgerCount, amount int

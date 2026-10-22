@@ -16,9 +16,7 @@ func TestLifestyleCategoriesAcrossSubmissionReviewFilterAndSubscription(t *testi
 			_, author := account(t, s, "author@example.org", "member", 10)
 			readerID, reader := account(t, s, "reader@example.org", "member", 10)
 			_, admin := account(t, s, founderEmail, "admin", 0)
-			if _, err := s.db.Exec("UPDATE users SET points=700 WHERE id=?", readerID); err != nil {
-				t.Fatal(err)
-			}
+			paidReadingFixture(t, s, readerID, 8)
 			input := map[string]any{
 				"title":    category + "的公开信息与适用条件整理",
 				"summary":  "这条公开信息说明具体适用条件、办理步骤和有效期限，读者应按自身情况核对。",
@@ -53,7 +51,7 @@ func TestLifestyleCategoriesAcrossSubmissionReviewFilterAndSubscription(t *testi
 				if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
 					t.Fatal(err)
 				}
-				if result.Total != 1 || len(result.Items) != 1 || result.Items[0].ID != created.ID || result.Items[0].Category != category || result.Items[0].Body != "" {
+				if result.Total != 1 || len(result.Items) != 1 || result.Items[0].ID != created.ID || result.Items[0].Category != category || result.Items[0].Body == "" {
 					t.Fatalf("category filter or locked content mismatch: %s", w.Body.String())
 				}
 			}

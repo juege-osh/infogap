@@ -20,7 +20,7 @@ func assertLockedPublicSource(t *testing.T, response string) {
 func TestLockedSourcePublicAPIAndAuthorizedRecovery(t *testing.T) {
 	s := testServer(t)
 	authorID, author := account(t, s, "source-author@example.org", "member", 100)
-	readerID, reader := account(t, s, "source-reader@example.org", "member", 100)
+	_, reader := account(t, s, "source-reader@example.org", "member", 100)
 	_, other := account(t, s, "source-other@example.org", "member", 100)
 	_, admin := account(t, s, founderEmail, "admin", 0)
 	_, reviewer := account(t, s, "source-reviewer@example.org", "reviewer", 0)
@@ -70,15 +70,9 @@ func TestLockedSourcePublicAPIAndAuthorizedRecovery(t *testing.T) {
 		mustStatus(t, w, 200)
 		assertLockedPublicSource(t, w.Body.String())
 	}
-	if _, err = s.db.Exec("UPDATE users SET points=700 WHERE id=?", readerID); err != nil {
-		t.Fatal(err)
-	}
-	mustStatus(t, request(s, "POST", "/api/subscriptions", map[string]string{"kind": "tag", "value": "AtlasSource"}, reader), 201)
+	mustStatus(t, request(s, "POST", "/api/subscriptions", map[string]string{"kind": "tag", "value": "AtlasSource"}, reader), 403)
 	w := request(s, "GET", "/api/gaps?view=subscribed", nil, reader)
-	mustStatus(t, w, 200)
-	if !strings.Contains(w.Body.String(), `"total":0`) {
-		t.Fatal("subscription inferred locked source", w.Body.String())
-	}
+	mustStatus(t, w, 403)
 	// Disputed status previously exposed review notes; source notes stay locked.
 	_, _ = s.db.Exec("UPDATE gaps SET status='disputed' WHERE id=?", id)
 	w = request(s, "GET", path, nil, reader)
@@ -110,10 +104,7 @@ func TestLockedSourcePublicAPIAndAuthorizedRecovery(t *testing.T) {
 		}
 	}
 	w = request(s, "GET", "/api/gaps?view=subscribed", nil, reader)
-	mustStatus(t, w, 200)
-	if !strings.Contains(w.Body.String(), `"total":1`) {
-		t.Fatal("unlocked subscription did not recover")
-	}
+	mustStatus(t, w, 403)
 	// One user's unlock must not affect another user's search or response.
 	w = request(s, "GET", path, nil, other)
 	mustStatus(t, w, 200)

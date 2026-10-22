@@ -64,7 +64,8 @@ func gapScan(r scanner, u *User) (*Gap, error) {
 	}
 	owner := u != nil && g.AuthorID.Valid && g.AuthorID.Int64 == u.ID
 	staff := u != nil && (u.Role == "admin" || u.Role == "reviewer")
-	g.Unlocked = g.Unlocked || owner || staff
+	reading := u != nil && u.ReadingActive && g.Status == "published" && g.ReleasedAt != "" && u.ReadingCutoff != "" && g.ReleasedAt <= u.ReadingCutoff
+	g.Unlocked = g.Unlocked || owner || staff || reading
 	if !g.Unlocked {
 		g.Body = ""
 	}
@@ -95,7 +96,7 @@ func (s *server) canSee(g *Gap, u *User) bool {
 }
 func (s *server) delayHours(u *User) int {
 	if u == nil {
-		return 72
+		return 0
 	}
 	return s.decorate(u).Entitlements.DelayHours
 }
@@ -144,7 +145,7 @@ func (s *server) listGaps(w http.ResponseWriter, r *http.Request) {
 		args = []any{u.ID}
 	case "subscribed":
 		if !u.Entitlements.Subscriptions {
-			fail(w, 403, "订阅功能需黄金段位或有效功能会员")
+			fail(w, 403, "订阅功能需有效畅读套餐")
 			return
 		}
 		where = " WHERE g.status='published' AND EXISTS(SELECT 1 FROM (SELECT kind,value FROM subscriptions WHERE user_id=? ORDER BY id LIMIT ?) sub WHERE (sub.kind='category' AND sub.value=g.category) OR (sub.kind='tag' AND EXISTS(SELECT 1 FROM json_each(CASE WHEN json_valid(g.tags) THEN g.tags ELSE '[]' END) jt WHERE " + publicTextSQL("jt.value", u) + "=sub.value COLLATE NOCASE)))"
@@ -255,6 +256,10 @@ func (s *server) unlock(w http.ResponseWriter, r *http.Request) {
 	if u.Day == day {
 		u.DailyRemaining = max(0, u.DailyAllowance-u.DailyUsed)
 	}
+	if err = expireInviteCredits(tx, u.ID, now); err != nil {
+		fail(w, 500, "邀请积分到期处理失败")
+		return
+	}
 	if err = expireRankCredits(tx, u.ID, now); err == nil {
 		err = loadRankCredits(tx, u, now)
 	}
@@ -262,6 +267,7 @@ func (s *server) unlock(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "赠分余额读取失败")
 		return
 	}
+	s.decorate(u)
 	g, err := gapScan(tx.QueryRow(gapSelect+"WHERE g.id=?", u.ID, u.ID, id), u)
 	if err != nil || !s.canSee(g, u) {
 		fail(w, 404, "信息不存在")
@@ -276,22 +282,15 @@ func (s *server) unlock(w http.ResponseWriter, r *http.Request) {
 		fail(w, 409, "该信息已失效或待核验，暂不开放新的解锁")
 		return
 	}
-	if g.Level == "rare" && u.TierIndex < 2 {
-		fail(w, 403, "稀有信息需要白银及以上段位")
-		return
-	}
-	if g.Level == "exclusive" && u.TierIndex < 6 {
-		fail(w, 403, "独家信息需要钻石及以上段位")
-		return
-	}
 	totalCost := unlockCosts[g.Level]
 	if totalCost <= 0 {
 		fail(w, 409, "内容等级尚未确定，暂不能解锁")
 		return
 	}
 	dailyCost := min(totalCost, u.DailyRemaining)
-	rankCost := min(totalCost-dailyCost, u.RankCredits)
-	cost := totalCost - dailyCost - rankCost
+	inviteCost := min(totalCost-dailyCost, u.InviteCredits)
+	rankCost := min(totalCost-dailyCost-inviteCost, u.RankCredits)
+	cost := totalCost - dailyCost - inviteCost - rankCost
 	kind := "credit"
 	if u.Credits < cost {
 		fail(w, 402, "阅读额度不足。有效贡献按审核等级可获得 100–800 点，也可购买阅读额度。")
@@ -301,7 +300,7 @@ func (s *server) unlock(w http.ResponseWriter, r *http.Request) {
 	if u.Day != day {
 		used = 0
 	}
-	if dailyCost > 0 || rankCost > 0 {
+	if dailyCost > 0 || rankCost > 0 || inviteCost > 0 {
 		kind = "mixed"
 	}
 	if dailyCost == totalCost {
@@ -311,7 +310,10 @@ func (s *server) unlock(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err = tx.Exec("UPDATE users SET credits=credits-?,day_key=?,daily_used=? WHERE id=? AND credits>=?", cost, day, used+dailyCost, u.ID, cost)
 	if err == nil {
-		_, err = tx.Exec("INSERT INTO unlocks(user_id,gap_id,cost,kind,created_at,daily_cost,day_key,rank_cost) VALUES(?,?,?,?,?,?,?,?)", u.ID, id, cost, kind, stamp(now), dailyCost, day, rankCost)
+		_, err = tx.Exec("INSERT INTO unlocks(user_id,gap_id,cost,kind,created_at,daily_cost,day_key,rank_cost,invite_cost) VALUES(?,?,?,?,?,?,?,?,?)", u.ID, id, cost, kind, stamp(now), dailyCost, day, rankCost, inviteCost)
+	}
+	if err == nil {
+		err = spendInviteCredits(tx, u.ID, id, inviteCost, now)
 	}
 	if err == nil {
 		err = spendRankCredits(tx, u.ID, id, rankCost, now)

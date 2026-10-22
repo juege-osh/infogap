@@ -22,3 +22,5 @@ func (w *supportResponse) Write(data []byte) (int, error) {
 	}
 	return w.ResponseWriter.Write(data)
 }
+
+func (w *supportResponse) Unwrap() http.ResponseWriter { return w.ResponseWriter }

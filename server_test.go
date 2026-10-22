@@ -197,13 +197,13 @@ func TestDailyQuotaAndRankGate(t *testing.T) {
 		t.Fatalf("credits=%d daily=%d", credits, used)
 	}
 	g := gap(t, s, "rare", "published", nil)
-	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", g), nil, c), 403)
+	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", g), nil, c), 200)
 	_, _ = s.db.Exec("UPDATE users SET points=300,featured_contributions=1 WHERE id=?", id)
 	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", g), nil, c), 200)
 	g = gap(t, s, "exclusive", "published", nil)
 	_, _ = s.db.Exec("UPDATE users SET points=2500,rare_contributions=1,last_quality_at=? WHERE id=?", stamp(s.now().Add(-91*24*time.Hour)), id)
-	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", g), nil, c), 403)
-	_, _ = s.db.Exec("UPDATE users SET points=4000,last_quality_at=? WHERE id=?", stamp(s.now()), id)
+	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", g), nil, c), 402)
+	_, _ = s.db.Exec("UPDATE users SET credits=8 WHERE id=?", id)
 	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", g), nil, c), 200)
 }
 func TestReviewExactlyOnceAndRefund(t *testing.T) {

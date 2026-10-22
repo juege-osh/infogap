@@ -39,7 +39,7 @@ func TestTestModeRequiresOriginalFounderAndPreservesAdmin(t *testing.T) {
 	}
 	mustStatus(t, request(s, "POST", "/api/admin/test-mode", input, cookie), 200)
 	u := previewUser(t, s, cookie)
-	if u.ID == owner || u.Role != "member" || !u.TestMode || !u.CanTestMode || u.TierIndex != 0 || u.Entitlements.DelayHours != 72 || u.DailyRemaining != 1 {
+	if u.ID == owner || u.Role != "member" || !u.TestMode || !u.CanTestMode || u.TierIndex != 0 || u.Entitlements.DelayHours != 0 || u.DailyRemaining != 1 {
 		t.Fatalf("bad test identity: %+v", u)
 	}
 	other := previewUser(t, s, second)
@@ -76,21 +76,18 @@ func TestTestModeRanksRealReadingAndReset(t *testing.T) {
 	old := gap(t, s, "ordinary", "published", nil)
 	fresh := gap(t, s, "ordinary", "published", nil)
 	s.db.Exec("UPDATE gaps SET released_at=? WHERE id=?", stamp(s.now()), fresh)
-	for i, tier := range tiers {
+	for i := range tiers {
 		mustStatus(t, request(s, "POST", "/api/admin/test-mode", map[string]any{"tier": i, "credits": 20, "member": false, "quality": false, "reset": true}, cookie), 200)
 		u := previewUser(t, s, cookie)
-		if u.TierIndex != i || u.Role != "member" || u.Entitlements.DelayHours != tier.DelayHours || u.DailyRemaining != tier.DailyAllowance || u.Credits != 20 {
+		if u.TierIndex != i || u.Role != "member" || u.Entitlements.DelayHours != 0 || u.DailyRemaining != 1 || u.Credits != 20 {
 			t.Fatal("rank simulation differs from real entitlement", i, u)
 		}
 		w := request(s, "GET", fmt.Sprintf("/api/gaps/%d", fresh), nil, cookie)
-		if tier.DelayHours > 0 {
-			mustStatus(t, w, 404)
-		} else {
-			mustStatus(t, w, 200)
-			if strings.Contains(w.Body.String(), "PROTECTED_SECRET_FULLTEXT") {
-				t.Fatal("unpaid preview exposed body")
-			}
+		mustStatus(t, w, 200)
+		if strings.Contains(w.Body.String(), "PROTECTED_SECRET_FULLTEXT") {
+			t.Fatal("unpaid preview exposed body")
 		}
+
 	}
 	mustStatus(t, request(s, "POST", "/api/admin/test-mode", map[string]any{"tier": 0, "credits": 0, "reset": true}, cookie), 200)
 	unlocked := request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", old), nil, cookie)
@@ -105,7 +102,7 @@ func TestTestModeRanksRealReadingAndReset(t *testing.T) {
 	}
 	mustStatus(t, request(s, "POST", "/api/admin/test-mode", map[string]any{"tier": 0, "credits": 0, "member": true, "quality": true, "reset": true}, cookie), 200)
 	u := previewUser(t, s, cookie)
-	if !u.IsMember || u.Entitlements.SubscriptionLimit != 20 || u.RareContributions != 1 || u.DailyRemaining != 1 {
+	if !u.IsMember || u.Entitlements.SubscriptionLimit != 0 || u.RareContributions != 1 || u.DailyRemaining != 1 {
 		t.Fatal("test options not applied")
 	}
 	w := request(s, "GET", fmt.Sprintf("/api/gaps/%d", old), nil, cookie)
@@ -117,7 +114,7 @@ func TestTestModeRanksRealReadingAndReset(t *testing.T) {
 	if count != 0 {
 		t.Fatal("test reading touched administrator")
 	}
-	for _, input := range []map[string]any{{"tier": -1}, {"tier": 10}, {"tier": 0, "credits": -1}, {"tier": 0, "credits": 100001}, {"credits": 1}, {"tier": 0, "user_id": owner}} {
+	for _, input := range []map[string]any{{"tier": -1}, {"tier": 10}, {"tier": 0, "credits": -1}, {"tier": 0, "credits": 100001}, {"tier": 0, "user_id": owner}} {
 		mustStatus(t, request(s, "POST", "/api/admin/test-mode", input, cookie), 400)
 	}
 }

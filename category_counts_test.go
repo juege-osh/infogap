@@ -8,7 +8,8 @@ import (
 
 func TestCategoryCountsRespectPublicationAndDelay(t *testing.T) {
 	s := testServer(t)
-	_, cookie := account(t, s, "member@example.test", "member", 0)
+	uid, cookie := account(t, s, "member@example.test", "member", 0)
+	paidReadingFixture(t, s, uid, 8)
 	visible := gap(t, s, "ordinary", "published", nil)
 	gap(t, s, "ordinary", "pending", nil)
 	recent := gap(t, s, "ordinary", "published", nil)

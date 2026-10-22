@@ -74,6 +74,9 @@ func refundReadingCredits(tx *sql.Tx, gapID int64, now time.Time) error {
 		return err
 	}
 	for _, item := range items {
+		if err = refundInviteCredits(tx, item.user, gapID, now); err != nil {
+			return err
+		}
 		if err = refundRankCredits(tx, item.user, gapID, now); err != nil {
 			return err
 		}

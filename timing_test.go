@@ -13,7 +13,8 @@ func TestReleaseDelayAcrossAllReadPathsAndBoundary(t *testing.T) {
 	s := testServer(t)
 	id, c := account(t, s, "reader@example.org", "member", 10)
 	g := gap(t, s, "ordinary", "published", nil)
-	release := s.now().Add(-72*time.Hour + time.Second)
+	paidReadingFixture(t, s, id, 8)
+	release := s.now().Add(-8*time.Hour + time.Second)
 	_, _ = s.db.Exec("UPDATE gaps SET released_at=? WHERE id=?", stamp(release), g)
 	_, _ = s.db.Exec("UPDATE users SET membership_until=? WHERE id=?", stamp(s.now().Add(30*24*time.Hour)), id)
 	_, _ = s.db.Exec("INSERT INTO saves(user_id,gap_id,created_at) VALUES(?,?,?)", id, g, stamp(s.now()))
@@ -32,7 +33,7 @@ func TestReleaseDelayAcrossAllReadPathsAndBoundary(t *testing.T) {
 			t.Fatal("count leaked", list.Total)
 		}
 	}
-	for _, cookie := range []string{"", c} {
+	for _, cookie := range []string{c} {
 		w := request(s, "GET", "/api/bootstrap", nil, cookie)
 		mustStatus(t, w, 200)
 		var boot struct {
@@ -43,7 +44,7 @@ func TestReleaseDelayAcrossAllReadPathsAndBoundary(t *testing.T) {
 		if boot.Stats["published"] != 0 || boot.Stats["pending"] != 0 {
 			t.Fatal("stats leaked", w.Body.String())
 		}
-		if boot.User != nil && boot.User.Entitlements.DelayHours != 72 {
+		if boot.User != nil && boot.User.Entitlements.DelayHours != 8 {
 			t.Fatal("paid bypassed delay")
 		}
 		mustStatus(t, request(s, "GET", fmt.Sprintf("/api/gaps/%d", g), nil, cookie), 404)
@@ -60,16 +61,16 @@ func TestReleaseDelayAcrossAllReadPathsAndBoundary(t *testing.T) {
 	var credits, used, n int
 	_ = s.db.QueryRow("SELECT credits,daily_used FROM users WHERE id=?", id).Scan(&credits, &used)
 	_ = s.db.QueryRow("SELECT COUNT(*) FROM unlocks WHERE user_id=?", id).Scan(&n)
-	if credits != 10 || used != 1 || n != 1 {
+	if credits != 10 || used != 0 || n != 0 {
 		t.Fatalf("boundary/repeat changed charge %d %d %d", credits, used, n)
 	}
 }
 func TestDelayScheduleAndStaffOverride(t *testing.T) {
 	s := testServer(t)
-	schedule := []int{72, 48, 24, 12, 6, 3, 1, 0, 0, 0}
+	schedule := []int{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 	for i, tier := range tiers {
 		u := s.decorate(&User{Role: "member", Points: tier.MinPoints, MembershipUntil: stamp(s.now().Add(time.Hour))})
-		if u.Entitlements.DelayHours != schedule[i] || tier.DelayHours != schedule[i] {
+		if u.Entitlements.DelayHours != schedule[i] {
 			t.Fatalf("tier %d incorrect delay", i)
 		}
 	}
@@ -137,7 +138,7 @@ func TestApprovalReleaseTimePreservedAndUnlockSurvivesDowngrade(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "PROTECTED_SECRET") {
 		t.Fatal("previous unlock lost after downgrade")
 	}
-	mustStatus(t, request(s, "GET", fmt.Sprintf("/api/gaps/%d", g), nil, ""), 404)
+	mustStatus(t, request(s, "GET", fmt.Sprintf("/api/gaps/%d", g), nil, ""), 200)
 	item := editingItem(t, s, g, admin)
 	input := editInput(item, "经重新核对后的科研进展标题")
 	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/submissions/%d/edit", g), input, admin), 200)
@@ -152,7 +153,7 @@ func TestApprovalReleaseTimePreservedAndUnlockSurvivesDowngrade(t *testing.T) {
 	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", g), nil, reader), 200)
 	var credits int
 	_ = s.db.QueryRow("SELECT credits FROM users WHERE id=?", id).Scan(&credits)
-	if credits != 10 {
+	if credits != 9 {
 		t.Fatal("repeat unlocked charged", credits)
 	}
 }

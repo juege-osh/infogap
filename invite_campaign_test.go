@@ -155,7 +155,7 @@ func TestInviteCampaignRegistrationAwardLoginExpiryAndNoMonthlyGift(t *testing.T
 	}
 	u := result.User
 	cookie := w.Result().Cookies()[0].Value
-	if u == nil || u.Credits != 1000 || u.Points != 0 || u.TierIndex != 1 || u.EarnedTierIndex != 0 || u.PaidUntil != stamp(start.Add(30*24*time.Hour)) || u.DailyAllowance != 2 || u.RankCredits != 0 || u.Role != "member" || u.Contributions != 0 {
+	if u == nil || u.Credits != 0 || u.InviteCredits != 1000 || u.InviteCreditsExpiresAt != stamp(start.Add(30*24*time.Hour)) || u.Points != 0 || u.TierIndex != 0 || u.PaidTier != 0 || u.PaidUntil != "" || u.RankCredits != 0 || u.Role != "member" || u.Contributions != 0 {
 		t.Fatal("incorrect campaign benefits", w.Body.String())
 	}
 	mustStatus(t, request(s, "POST", "/api/auth/verify", map[string]string{"email": "selected@example.org", "invite": r.Code, "code": code}, ""), 400)
@@ -178,7 +178,7 @@ func TestInviteCampaignRegistrationAwardLoginExpiryAndNoMonthlyGift(t *testing.T
 	}
 	s.now = func() time.Time { return start.Add(2 * time.Minute) }
 	logged, _ := campaignRegister(t, s, "selected@example.org", "", r.Code)
-	if logged.Credits != 1000 || logged.PaidUntil != u.PaidUntil {
+	if logged.Credits != 0 || logged.InviteCredits != 1000 || logged.InviteCreditsExpiresAt != u.InviteCreditsExpiresAt || logged.PaidTier != 0 {
 		t.Fatal("login repeated or extended award")
 	}
 	tx, err := s.db.Begin()
@@ -215,12 +215,12 @@ func TestInviteCampaignRegistrationAwardLoginExpiryAndNoMonthlyGift(t *testing.T
 		if err = json.Unmarshal(w.Body.Bytes(), &result); err != nil {
 			t.Fatal(err)
 		}
-		wantTier := 0
+		wantCredits := 0
 		if at.Before(start.Add(30 * 24 * time.Hour)) {
-			wantTier = 1
+			wantCredits = 1000
 		}
-		if result.User == nil || result.User.TierIndex != wantTier || result.User.Credits != 1000 || result.User.RankCredits != 0 {
-			t.Fatal("expiry revived gifts or lost permanent award", w.Body.String())
+		if result.User == nil || result.User.TierIndex != 0 || result.User.PaidTier != 0 || result.User.Credits != 0 || result.User.InviteCredits != wantCredits || result.User.RankCredits != 0 {
+			t.Fatal("expiry revived invitation or granted membership", w.Body.String())
 		}
 	}
 }
@@ -284,12 +284,13 @@ func TestInviteCampaignConcurrentVerificationAwardsOnce(t *testing.T) {
 			invalid++
 		}
 	}
-	var awards, uses, credits int
+	var awards, uses, credits, inviteCredits int
 	s.db.QueryRow("SELECT COUNT(*) FROM invite_campaign_awards").Scan(&awards)
 	s.db.QueryRow("SELECT uses FROM invites WHERE id=?", r.ID).Scan(&uses)
 	s.db.QueryRow("SELECT credits FROM users WHERE email='concurrent@example.org'").Scan(&credits)
-	if success != 1 || invalid != 1 || awards != 1 || uses != 1 || credits != 1000 {
-		t.Fatal(success, invalid, awards, uses, credits)
+	s.db.QueryRow("SELECT remaining FROM invite_credit_batches b JOIN users u ON u.id=b.user_id WHERE u.email='concurrent@example.org'").Scan(&inviteCredits)
+	if success != 1 || invalid != 1 || awards != 1 || uses != 1 || credits != 0 || inviteCredits != 1000 {
+		t.Fatal(success, invalid, awards, uses, credits, inviteCredits)
 	}
 }
 
@@ -356,7 +357,7 @@ func TestPermanentInviteBeyondHundredUsesAndNinetyDaysUntilRevoked(t *testing.T)
 			}
 		} else {
 			rewarded = u
-			if u.TierIndex != 1 || u.Credits != 1000 || u.PaidUntil != stamp(at.Add(30*24*time.Hour)) {
+			if u.TierIndex != 0 || u.PaidTier != 0 || u.Credits != 0 || u.InviteCredits != 1000 || u.InviteCreditsExpiresAt != stamp(at.Add(30*24*time.Hour)) {
 				t.Fatal("101st registration lost campaign award", u)
 			}
 		}
@@ -364,7 +365,7 @@ func TestPermanentInviteBeyondHundredUsesAndNinetyDaysUntilRevoked(t *testing.T)
 	last := s.now()
 	s.now = func() time.Time { return last.Add(2 * time.Minute) }
 	u, _ := campaignRegister(t, s, "fixed100@example.org", "", receipt.Code)
-	if u.Credits != 1000 || u.PaidUntil != rewarded.PaidUntil {
+	if u.Credits != 0 || u.InviteCredits != 1000 || u.InviteCreditsExpiresAt != rewarded.InviteCreditsExpiresAt || u.PaidTier != 0 {
 		t.Fatal("permanent invitation repeated or extended reward")
 	}
 	var uses, awards int
@@ -463,7 +464,7 @@ func TestInviteCampaignAppendPrivacyPermissionsAndRegistrationOnly(t *testing.T)
 		t.Fatal("existing user received appended reward")
 	}
 	newUser, _ := campaignRegister(t, s, "append-new@example.org", "新活动成员", r.Code)
-	if newUser.Credits != 1000 || newUser.PaidTier != 1 {
+	if newUser.Credits != 0 || newUser.InviteCredits != 1000 || newUser.PaidTier != 0 {
 		t.Fatal("new appended member did not receive registration-only award")
 	}
 }

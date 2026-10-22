@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -44,13 +43,15 @@ func rankPrice(tier, months int) int64 {
 	return rankMonthlyPrices[tier] * int64(months)
 }
 func newBillingPlans() []billingPlan {
-	out := []billingPlan{{ID: "credits_100", Name: "1000永久阅读积分", Type: "credits", AmountCents: 990, Credits: 1000}, {ID: "credits_350", Name: "3500永久阅读积分", Type: "credits", AmountCents: 2900, Credits: 3500}, {ID: "credits_1000", Name: "10000永久阅读积分", Type: "credits", AmountCents: 7900, Credits: 10000}}
-	for tier := 1; tier <= 7; tier++ {
-		for _, months := range []int{1, 3, 6, 12} {
-			out = append(out, billingPlan{ID: fmt.Sprintf("rank_%d_%d", tier, months), Name: fmt.Sprintf("%s · %d个月", tiers[tier].Name, months), Type: "rank", AmountCents: rankPrice(tier, months), Days: rankDays(months), RankTier: tier, Months: months, MonthlyCredits: rankGift(tier, months)})
-		}
+	out := []billingPlan{}
+	for _, p := range []struct {
+		months int
+		price  int64
+		delay  int
+	}{{1, 1800, 8}, {3, 3800, 4}, {6, 5800, 2}, {12, 8800, 0}} {
+		out = append(out, billingPlan{ID: fmt.Sprintf("reading_%d", p.months), Name: fmt.Sprintf("%d个月畅读", p.months), Type: "reading", AmountCents: p.price, Days: rankDays(p.months), Months: p.months, DelayHours: p.delay, UnlimitedReading: true, ReadingPolicyVersion: readingPolicyVersion})
 	}
-	return out
+	return append(out, billingPlan{ID: "credits_100", Name: "1000永久阅读积分", Type: "credits", AmountCents: 990, Credits: 1000}, billingPlan{ID: "credits_350", Name: "3500永久阅读积分", Type: "credits", AmountCents: 2900, Credits: 3500}, billingPlan{ID: "credits_1000", Name: "10000永久阅读积分", Type: "credits", AmountCents: 7900, Credits: 10000})
 }
 
 const rankBillingSchema = `
@@ -111,6 +112,9 @@ func grantRankGifts(tx *sql.Tx, user int64, now time.Time) error {
 		id             int64
 		total, granted int
 		starts         string
+	}
+	if e := expireInviteCredits(tx, user, now); e != nil {
+		return e
 	}
 	if e := expireRankCredits(tx, user, now); e != nil {
 		return e
@@ -196,12 +200,7 @@ func grantRankGifts(tx *sql.Tx, user int64, now time.Time) error {
 		}
 		next.Close()
 	}
-	// Registration campaigns grant temporary rank only; they do not participate
-	// in rank_periods or the recurring credit gift loop above.
-	tier, until, e = mergeInviteCampaignRank(tx, user, now, tier, until)
-	if e != nil {
-		return e
-	}
+	// Only historical paid orders maintain the legacy rank cache.
 	_, e = tx.Exec("UPDATE users SET paid_tier=?,paid_until=? WHERE id=?", tier, until, user)
 	return e
 }
@@ -379,16 +378,9 @@ func applyRankOrder(tx *sql.Tx, o *billingOrder, now time.Time) error {
 		if !hasInt([]int{1, 3, 6, 12}, o.Months) || o.Days != rankDays(o.Months) || o.MonthlyCredits <= 0 {
 			return errors.New("invalid rank term snapshot")
 		}
-		start := now
-		var last sql.NullString
-		if e := tx.QueryRow("SELECT max(ends_at) FROM rank_periods WHERE user_id=?", o.UserID).Scan(&last); e != nil {
+		start, e := nextPaidReadingStart(tx, o.UserID, now)
+		if e != nil {
 			return e
-		}
-		if last.Valid {
-			t, _ := time.Parse(time.RFC3339, last.String)
-			if t.After(start) {
-				start = t
-			}
 		}
 		for i := 0; i < o.Months; i++ {
 			st := start.Add(time.Duration(i) * 30 * 24 * time.Hour)
@@ -453,25 +445,14 @@ func (s *server) rankStatus(w http.ResponseWriter, r *http.Request) {
 	send(w, 200, map[string]any{"user": u, "periods": items, "next_gift_at": next, "batches": batches, "gift_policy_version": rankGiftPolicyVersion, "gift_valid_days": 30})
 }
 func (s *server) rankUpgradeQuote(w http.ResponseWriter, r *http.Request) {
-	u := s.require(w, r)
-	if u == nil {
+	if s.require(w, r) == nil {
 		return
 	}
-	tier, e := strconv.Atoi(r.URL.Query().Get("tier"))
-	if e != nil {
-		fail(w, 400, "请选择目标段位")
-		return
-	}
-	p, e := s.rankUpgradePlan(u.ID, tier)
-	if e != nil {
-		fail(w, 409, e.Error())
-		return
-	}
-	send(w, 200, map[string]any{"plan": p})
+	fail(w, 410, "付费段位已停止出售，请选择畅读套餐")
 }
 func (s *server) runRankGifts(ctx context.Context) {
 	run := func() {
-		rows, e := s.db.Query("SELECT user_id FROM (SELECT user_id FROM rank_periods WHERE starts_at<=? AND monthly_credits>granted_credits UNION SELECT user_id FROM rank_credit_batches WHERE expired_at='' AND expires_at<=?) LIMIT 200", stamp(s.now()), stamp(s.now()))
+		rows, e := s.db.Query("SELECT user_id FROM (SELECT user_id FROM rank_periods WHERE starts_at<=? AND monthly_credits>granted_credits UNION SELECT user_id FROM rank_credit_batches WHERE expired_at='' AND expires_at<=? UNION SELECT user_id FROM invite_credit_batches WHERE expired_at='' AND expires_at<=?) LIMIT 200", stamp(s.now()), stamp(s.now()), stamp(s.now()))
 		if e != nil {
 			return
 		}

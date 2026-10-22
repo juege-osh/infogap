@@ -8,7 +8,7 @@ import (
 func TestRankAnnualGiftsRenewalAndExpiry(t *testing.T) {
 	s, _, id, cookie := billingFixture(t)
 	start := s.now()
-	o := billingPurchase(t, s, cookie, "rank_7_12", "alipay")
+	o := legacyRankPurchase(t, s, cookie, "rank_7_12", "alipay")
 	if o.AmountCents != 18800 || o.Days != 365 || o.MonthlyCredits != 14000 {
 		t.Fatalf("wrong plan %+v", o)
 	}
@@ -28,7 +28,7 @@ func TestRankAnnualGiftsRenewalAndExpiry(t *testing.T) {
 		t.Fatal(count)
 	}
 	// A renewal starts after the purchased year, without granting future credits.
-	next := billingPurchase(t, s, cookie, "rank_1_1", "alipay")
+	next := legacyRankPurchase(t, s, cookie, "rank_1_1", "alipay")
 	if e := s.billingApply(billingSuccess(next), "renewal"); e != nil {
 		t.Fatal(e)
 	}
@@ -65,7 +65,7 @@ func TestRankAnnualGiftsRenewalAndExpiry(t *testing.T) {
 func TestRankUpgradeIsProratedAndIdempotent(t *testing.T) {
 	s, _, id, cookie := billingFixture(t)
 	start := s.now()
-	o := billingPurchase(t, s, cookie, "rank_1_1", "alipay")
+	o := legacyRankPurchase(t, s, cookie, "rank_1_1", "alipay")
 	if e := s.billingApply(billingSuccess(o), "base"); e != nil {
 		t.Fatal(e)
 	}
@@ -78,8 +78,8 @@ func TestRankUpgradeIsProratedAndIdempotent(t *testing.T) {
 	if quote.AmountCents != 900 {
 		t.Fatal(quote.AmountCents)
 	}
-	// Insert through the real checkout so the quote snapshot is preserved.
-	up := billingPurchase(t, s, cookie, "rank_upgrade_7", "alipay")
+	// Reconcile a historical unpaid upgrade using its original quote snapshot.
+	up := legacyRankPurchase(t, s, cookie, "rank_upgrade_7", "alipay")
 	for i := 0; i < 2; i++ {
 		if e := s.billingApply(billingSuccess(up), "upgrade"); e != nil {
 			t.Fatal(e)
@@ -105,14 +105,12 @@ func TestRankUpgradeIsProratedAndIdempotent(t *testing.T) {
 
 func TestRankCataloguePricesAndHistoricalTopupOnce(t *testing.T) {
 	plans := newBillingPlans()
-	if len(plans) != 31 {
+	if len(plans) != 7 {
 		t.Fatal(len(plans))
 	}
 	for _, p := range plans {
-		if p.Type == "rank" {
-			if p.RankTier < 1 || p.RankTier > 7 || p.AmountCents != rankPrice(p.RankTier, p.Months) {
-				t.Fatal(p)
-			}
+		if p.Type == "rank" || p.RankTier != 0 {
+			t.Fatal("retired rank remains for sale", p)
 		}
 	}
 	s, _, id, cookie := billingFixture(t)

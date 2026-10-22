@@ -224,7 +224,7 @@ func TestAdminDeductConcurrentRequestsDoNotDoubleSpend(t *testing.T) {
 func TestAdminDeductPreservesRankDailyAndGiftBatches(t *testing.T) {
 	s, _, id, cookie := billingFixture(t)
 	_, admin := account(t, s, founderEmail, "admin", 0)
-	order := billingPurchase(t, s, cookie, "rank_1_1", "alipay")
+	order := legacyRankPurchase(t, s, cookie, "rank_1_1", "alipay")
 	if err := s.billingApply(billingSuccess(order), "deduction-fixture"); err != nil {
 		t.Fatal(err)
 	}

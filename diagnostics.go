@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -135,7 +136,7 @@ func (s *server) diagnostics(w http.ResponseWriter, r *http.Request) {
 			fresh := stamp(s.now())
 			_, err = test.db.Exec(`INSERT INTO gaps(id,title,summary,body,category,level,evidence,source_name,source_url,published_at,released_at,created_at,updated_at,status) VALUES(1,'自检已公开信息','公开摘要','DIAGNOSTIC_PRIVATE_BODY','物理','ordinary','official','自检来源','https://example.invalid/old',?,?,?,?, 'published'),(2,'自检刚发布信息','公开摘要','DIAGNOSTIC_FRESH_BODY','物理','ordinary','official','自检来源','https://example.invalid/fresh',?,?,?,?, 'published')`, old, old, old, old, fresh, fresh, fresh, fresh)
 			before := do("GET", "/api/gaps/1", memberCookie, nil)
-			add("正文锁定与低段位延迟", err == nil && before.Code == 200 && !strings.Contains(before.Body.String(), "DIAGNOSTIC_PRIVATE_BODY") && do("GET", "/api/gaps/2", memberCookie, nil).Code == 404, "未解锁不返回正文；黑铁用户看不到刚发布的内容")
+			add("免费摘要与正文锁定", err == nil && before.Code == 200 && !strings.Contains(before.Body.String(), "DIAGNOSTIC_PRIVATE_BODY") && do("GET", "/api/gaps/2", memberCookie, nil).Code == 200, "普通用户实时查看摘要；未解锁不返回正文")
 			unlock := do("POST", "/api/gaps/1/unlock", memberCookie, nil)
 			again := do("POST", "/api/gaps/1/unlock", memberCookie, nil)
 			var count, used int
@@ -146,17 +147,23 @@ func (s *server) diagnostics(w http.ResponseWriter, r *http.Request) {
 		}
 		if in.Group == "all" || in.Group == "subscriptions" {
 			test.db.Exec("UPDATE users SET points=0,membership_until='' WHERE id=1")
-			add("普通用户订阅限制", do("POST", "/api/subscriptions", memberCookie, map[string]any{"kind": "category", "value": "物理"}).Code == 403, "黑铁且没有会员时不能订阅")
-			test.db.Exec("UPDATE users SET points=700 WHERE id=1")
-			ok := true
-			for _, value := range []string{"物理", "化学", "人工智能"} {
-				if do("POST", "/api/subscriptions", memberCookie, map[string]any{"kind": "category", "value": value}).Code != 201 {
+			add("普通用户订阅限制", do("POST", "/api/subscriptions", memberCookie, map[string]any{"kind": "category", "value": "物理"}).Code == 403, "普通用户没有有效畅读时不能订阅")
+			test.db.Exec("INSERT INTO test_accounts(owner_id,user_id) VALUES(2,1)")
+			tx, _ := test.db.Begin()
+			err = setTestReading(tx, 1, 1, test.now())
+			if err == nil {
+				err = tx.Commit()
+			} else {
+				tx.Rollback()
+			}
+			ok := err == nil
+			for i := 0; i < 40; i++ {
+				if do("POST", "/api/subscriptions", memberCookie, map[string]any{"kind": "tag", "value": fmt.Sprintf("自检%d", i)}).Code != 201 {
 					ok = false
 				}
 			}
-			add("黄金订阅与数量上限", ok && do("POST", "/api/subscriptions", memberCookie, map[string]any{"kind": "category", "value": "生命科学"}).Code == 409, "黄金可创建 3 条订阅，第 4 条会被限制")
-			test.db.Exec("UPDATE users SET points=0,membership_until=? WHERE id=1", stamp(s.now().Add(time.Hour)))
-			add("订阅会员权益", do("POST", "/api/subscriptions", memberCookie, map[string]any{"kind": "category", "value": "生命科学"}).Code == 201, "低段位开通会员后可获得至少 20 条订阅配置")
+			add("畅读订阅与数量上限", ok && do("POST", "/api/subscriptions", memberCookie, map[string]any{"kind": "tag", "value": "超出上限"}).Code == 409, "有效畅读可配置40条订阅，第41条被限制")
+
 		}
 		if in.Group == "all" || in.Group == "payment" {
 			add("仅支付宝及服务器定价", do("POST", "/api/billing/orders", memberCookie, map[string]any{"plan": "credits_100", "channel": "wechat"}).Code == 400 && do("POST", "/api/billing/orders", memberCookie, map[string]any{"plan": "credits_100", "channel": "alipay", "amount_cents": 1}).Code == 400, "拒绝非支付宝渠道与客户端篡改价格")

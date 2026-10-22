@@ -79,7 +79,7 @@ func (in *inviteCreateInput) normalizeCampaign() (bool, error) {
 		return false, errors.New("活动名单需包含 1–1000 个邮箱")
 	}
 	if in.RewardRank != "bronze" || in.RewardDays < 1 || in.RewardDays > 365 || in.RewardCredits < 1 || in.RewardCredits > 100000 {
-		return false, errors.New("活动奖励需为青铜段位，期限 1–365 天，永久积分 1–100000")
+		return false, errors.New("活动赠分配置不正确，积分需为 1–100000；赠分到账后 30 天有效")
 	}
 	emails, err := normalizeCampaignEmails(in.Emails)
 	if err != nil {
@@ -227,7 +227,8 @@ func grantInviteCampaign(tx *sql.Tx, inviteID, userID int64, email string, now t
 	if err = tx.QueryRow("SELECT COUNT(*) FROM invite_campaign_awards WHERE user_id=? OR (invite_id=? AND email=?)", userID, inviteID, email).Scan(&exists); err != nil || exists > 0 {
 		return err
 	}
-	result, err := tx.Exec("INSERT INTO ledger(user_id,kind,amount,created_at,note) VALUES(?,'invite_campaign',?,?,?)", userID, credits, stamp(now), "邀请活动注册奖励 · 一次性永久积分")
+	creditExpiry := stamp(now.Add(inviteCreditDays * 24 * time.Hour))
+	result, err := tx.Exec("INSERT INTO ledger(user_id,kind,amount,created_at,note,expires_at) VALUES(?,'invite_campaign',?,?,?,?)", userID, credits, stamp(now), "邀请活动注册赠分 · 到账日起30天有效", creditExpiry)
 	if err != nil {
 		return err
 	}
@@ -239,20 +240,10 @@ func grantInviteCampaign(tx *sql.Tx, inviteID, userID int64, email string, now t
 	if _, err = tx.Exec("INSERT INTO invite_campaign_awards(user_id,invite_id,email,tier,credits,starts_at,ends_at,ledger_id) VALUES(?,?,?,1,?,?,?,?)", userID, inviteID, email, credits, stamp(now), until, ledgerID); err != nil {
 		return err
 	}
-	// The user is new. The paid_* fields are an effective entitlement cache,
-	// recalculated with campaign awards by the normal rank synchronization.
-	result, err = tx.Exec("UPDATE users SET credits=credits+?,paid_tier=1,paid_until=? WHERE id=? AND email=?", credits, until, userID, email)
-	if err != nil {
-		return err
-	}
-	changed, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if changed != 1 {
-		return errors.New("活动奖励账户更新失败")
-	}
-	return nil
+	// Invitations grant a dated credit batch, not paid membership or permanent
+	// balance. The historical award keeps its original schema for reconciliation.
+	_, err = tx.Exec("INSERT INTO invite_credit_batches(user_id,award_ledger_id,amount,remaining,granted_at,expires_at,origin) VALUES(?,?,?,?,?,?,'registration')", userID, ledgerID, credits, credits, stamp(now), creditExpiry)
+	return err
 }
 
 func mergeInviteCampaignRank(tx *sql.Tx, userID int64, now time.Time, tier int, until string) (int, string, error) {
@@ -291,7 +282,7 @@ func (s *server) getInviteCampaign(w http.ResponseWriter, r *http.Request) {
 		fail(w, 500, "读取活动失败")
 		return
 	}
-	rows, err := s.db.Query("SELECT m.email,COALESCE(a.starts_at,''),COALESCE(a.ends_at,'') FROM invite_campaign_members m LEFT JOIN invite_campaign_awards a ON a.invite_id=m.invite_id AND a.email=m.email WHERE m.invite_id=? ORDER BY m.email", id)
+	rows, err := s.db.Query("SELECT m.email,COALESCE(a.starts_at,''),COALESCE(a.ends_at,''),COALESCE(b.expires_at,'') FROM invite_campaign_members m LEFT JOIN invite_campaign_awards a ON a.invite_id=m.invite_id AND a.email=m.email LEFT JOIN invite_credit_batches b ON b.user_id=a.user_id WHERE m.invite_id=? ORDER BY m.email", id)
 	if err != nil {
 		fail(w, 500, "读取活动失败")
 		return
@@ -300,23 +291,23 @@ func (s *server) getInviteCampaign(w http.ResponseWriter, r *http.Request) {
 	emails := []map[string]any{}
 	awarded := 0
 	for rows.Next() {
-		var email, at, until string
-		if err = rows.Scan(&email, &at, &until); err != nil {
+		var email, at, until, creditExpiry string
+		if err = rows.Scan(&email, &at, &until, &creditExpiry); err != nil {
 			fail(w, 500, "读取活动失败")
 			return
 		}
 		if at != "" {
 			awarded++
 		}
-		emails = append(emails, map[string]any{"email": email, "awarded": at != "", "awarded_at": at, "rank_until": until})
+		emails = append(emails, map[string]any{"email": email, "awarded": at != "", "awarded_at": at, "rank_until": until, "credit_expires_at": creditExpiry})
 	}
 	if err = rows.Err(); err != nil {
 		fail(w, 500, "读取活动失败")
 		return
 	}
-	send(w, 200, map[string]any{"id": id, "permanent": permanent, "reward_rank": rank, "reward_days": days, "reward_credits": credits, "email_count": len(emails), "awarded_count": awarded, "emails": emails})
+	send(w, 200, map[string]any{"id": id, "permanent": permanent, "reward_rank": rank, "reward_days": days, "reward_credits": credits, "credit_valid_days": inviteCreditDays, "email_count": len(emails), "awarded_count": awarded, "emails": emails})
 }
 
 func campaignAuditNote(in inviteCreateInput) string {
-	return fmt.Sprintf("活动邀请：名单 %d 人，青铜 %d 天，一次性永久积分 %d，长期邀请码 %t", len(in.Emails), in.RewardDays, in.RewardCredits, in.Permanent)
+	return fmt.Sprintf("活动邀请：名单 %d 人，一次性赠分 %d，到账日起30天有效，长期邀请码 %t", len(in.Emails), in.RewardCredits, in.Permanent)
 }

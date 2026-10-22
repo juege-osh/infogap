@@ -27,7 +27,7 @@ import (
 )
 
 const founderEmail = "1402272093@qq.com"
-const version = "1.0.15"
+const version = "1.0.16"
 
 var buildCommit = "dev"
 
@@ -44,45 +44,53 @@ type Tier struct {
 var tiers = []Tier{{"坚韧黑铁", 0, "#88909a", 72, 1}, {"英勇青铜", 100, "#b5896b", 48, 2}, {"荣耀白银", 300, "#c5ced6", 24, 3}, {"华贵黄金", 700, "#e8b84b", 12, 5}, {"璀璨铂金", 1400, "#75cacc", 6, 8}, {"流光翡翠", 2500, "#59c595", 3, 10}, {"璀璨钻石", 4000, "#80b3ed", 1, 15}, {"超凡大师", 6500, "#b994eb", 0, 20}, {"傲世宗师", 10000, "#eb8383", 0, 30}, {"最强王者", 15000, "#f5d575", 0, 50}}
 
 type Entitlements struct {
+	UnlimitedReading  bool `json:"unlimited_reading"`
 	Subscriptions     bool `json:"subscriptions"`
 	SubscriptionLimit int  `json:"subscription_limit"`
 	DelayHours        int  `json:"delay_hours"`
 }
 
 type User struct {
-	PaidTier              int          `json:"paid_tier"`
-	PaidUntil             string       `json:"paid_until"`
-	EarnedTierIndex       int          `json:"earned_tier_index"`
-	EarnedTier            string       `json:"earned_tier"`
-	TestMode              bool         `json:"test_mode"`
-	CanTestMode           bool         `json:"can_test_mode"`
-	ID                    int64        `json:"id"`
-	MembershipUntil       string       `json:"membership_until"`
-	IsMember              bool         `json:"is_member"`
-	Entitlements          Entitlements `json:"entitlements"`
-	Email                 string       `json:"email"`
-	Username              string       `json:"username"`
-	Role                  string       `json:"role"`
-	Points                int          `json:"points"`
-	Tier                  string       `json:"tier"`
-	TierIndex             int          `json:"tier_index"`
-	Credits               int          `json:"credits"`
-	RankCredits           int          `json:"rank_credits"`
-	RankCreditsExpiresAt  string       `json:"rank_credits_expires_at"`
-	AvailableCredits      int          `json:"available_credits"`
-	DailyRemaining        int          `json:"daily_remaining"`
-	DailyAllowance        int          `json:"daily_allowance"`
-	Contributions         int          `json:"contributions"`
-	FeaturedContributions int          `json:"featured_contributions"`
-	RareContributions     int          `json:"rare_contributions"`
-	LastQualityAt         string       `json:"-"`
-	Disabled              bool         `json:"disabled"`
-	Week                  string       `json:"-"`
-	WeeklyUsed            int          `json:"-"`
-	Day                   string       `json:"-"`
-	DailyUsed             int          `json:"-"`
+	ReadingCutoff          string       `json:"-"`
+	InviteCredits          int          `json:"invite_credits"`
+	InviteCreditsExpiresAt string       `json:"invite_credits_expires_at"`
+	ReadingActive          bool         `json:"reading_active"`
+	ReadingUntil           string       `json:"reading_until"`
+	ReadingDelayHours      int          `json:"reading_delay_hours"`
+	PaidTier               int          `json:"paid_tier"`
+	PaidUntil              string       `json:"paid_until"`
+	EarnedTierIndex        int          `json:"earned_tier_index"`
+	EarnedTier             string       `json:"earned_tier"`
+	TestMode               bool         `json:"test_mode"`
+	CanTestMode            bool         `json:"can_test_mode"`
+	ID                     int64        `json:"id"`
+	MembershipUntil        string       `json:"membership_until"`
+	IsMember               bool         `json:"is_member"`
+	Entitlements           Entitlements `json:"entitlements"`
+	Email                  string       `json:"email"`
+	Username               string       `json:"username"`
+	Role                   string       `json:"role"`
+	Points                 int          `json:"points"`
+	Tier                   string       `json:"tier"`
+	TierIndex              int          `json:"tier_index"`
+	Credits                int          `json:"credits"`
+	RankCredits            int          `json:"rank_credits"`
+	RankCreditsExpiresAt   string       `json:"rank_credits_expires_at"`
+	AvailableCredits       int          `json:"available_credits"`
+	DailyRemaining         int          `json:"daily_remaining"`
+	DailyAllowance         int          `json:"daily_allowance"`
+	Contributions          int          `json:"contributions"`
+	FeaturedContributions  int          `json:"featured_contributions"`
+	RareContributions      int          `json:"rare_contributions"`
+	LastQualityAt          string       `json:"-"`
+	Disabled               bool         `json:"disabled"`
+	Week                   string       `json:"-"`
+	WeeklyUsed             int          `json:"-"`
+	Day                    string       `json:"-"`
+	DailyUsed              int          `json:"-"`
 }
 type server struct {
+	courseDir              string
 	db                     *sql.DB
 	billing                *billingService
 	web, origin, otpSecret string
@@ -124,37 +132,24 @@ func (s *server) decorate(u *User) *User {
 	until, _ := time.Parse(time.RFC3339, u.MembershipUntil)
 	u.IsMember = until.After(s.now())
 	limit := 0
-	switch {
-	case u.TierIndex >= 7:
-		limit = 40
-	case u.TierIndex >= 6:
-		limit = 20
-	case u.TierIndex >= 5:
-		limit = 12
-	case u.TierIndex >= 4:
-		limit = 8
-	case u.TierIndex >= 3:
-		limit = 3
-	case u.TierIndex >= 2:
-		limit = 1
-	}
-	if u.IsMember {
-		limit = max(limit, 20)
-	}
-	if u.Role == "admin" {
+	if u.ReadingActive || u.Role == "admin" || u.Role == "reviewer" {
 		limit = 40
 	}
-	delay := tiers[u.TierIndex].DelayHours
+	delay := 0
+	if u.ReadingActive {
+		delay = u.ReadingDelayHours
+	}
 	if u.Role == "admin" || u.Role == "reviewer" {
 		delay = 0
 	}
-	u.Entitlements = Entitlements{Subscriptions: limit > 0, SubscriptionLimit: limit, DelayHours: delay}
-	u.DailyAllowance = tiers[u.TierIndex].DailyAllowance
+	u.Entitlements = Entitlements{Subscriptions: limit > 0, SubscriptionLimit: limit, DelayHours: delay, UnlimitedReading: u.ReadingActive || u.Role == "admin" || u.Role == "reviewer"}
+	u.ReadingCutoff = stamp(s.now().Add(-time.Duration(delay) * time.Hour))
+	u.DailyAllowance = 1
 	u.DailyRemaining = u.DailyAllowance
 	if u.Day == dayKey(s.now()) {
 		u.DailyRemaining = max(0, u.DailyAllowance-u.DailyUsed)
 	}
-	u.AvailableCredits = u.DailyRemaining + u.RankCredits + u.Credits
+	u.AvailableCredits = u.DailyRemaining + u.RankCredits + u.InviteCredits + u.Credits
 	return u
 }
 func weekKey(t time.Time) string {
@@ -321,6 +316,7 @@ func (s *server) routes() http.Handler {
 	m.HandleFunc("GET /api/gaps", s.listGaps)
 	m.HandleFunc("GET /api/travel/facets", s.travelFacets)
 	m.HandleFunc("GET /api/gaps/{id}", s.getGap)
+	m.HandleFunc("GET /api/gaps/{id}/neighbors", s.readingNeighbors)
 	m.HandleFunc("POST /api/gaps/{id}/unlock", s.unlock)
 	m.HandleFunc("POST /api/gaps/{id}/save", s.saveGap)
 	m.HandleFunc("POST /api/gaps/{id}/report", s.reportGap)
@@ -336,6 +332,8 @@ func (s *server) routes() http.Handler {
 	m.HandleFunc("POST /api/subscriptions", s.addSubscription)
 	m.HandleFunc("DELETE /api/subscriptions/{id}", s.deleteSubscription)
 	m.HandleFunc("GET /api/admin/overview", s.overview)
+	m.HandleFunc("GET /api/admin/orders", s.adminOrders)
+	m.HandleFunc("GET /api/admin/behaviors", s.adminBehaviors)
 	m.HandleFunc("POST /api/admin/invites", s.newInvite)
 	m.HandleFunc("GET /api/admin/invites/{id}/campaign", s.getInviteCampaign)
 	m.HandleFunc("POST /api/admin/invites/{id}/campaign/emails", s.addInviteCampaignEmails)
@@ -344,6 +342,7 @@ func (s *server) routes() http.Handler {
 	m.HandleFunc("POST /api/admin/gaps/{id}", s.editGap)
 	m.HandleFunc("POST /api/admin/users/{id}", s.manageUser)
 	m.HandleFunc("POST /api/admin/sources/{id}", s.manageSource)
+	s.courseRoutes(m)
 	s.billingRoutes(m)
 	s.feedbackRoutes(m)
 	m.HandleFunc("POST /api/admin/test-mode", s.setTestMode)
@@ -381,7 +380,16 @@ func (s *server) routes() http.Handler {
 			requestID := "RQ-" + token(8)
 			w.Header().Set("X-Request-ID", requestID)
 			started := time.Now()
+			behaviorUser := int64(0)
+			if action, _ := behaviorAction(r); action != "" {
+				if u := s.current(r); u != nil {
+					behaviorUser = u.ID
+				}
+			}
 			defer func() {
+				if r.URL.Path != "/api/auth/verify" {
+					s.recordBehavior(behaviorUser, r, response.status)
+				}
 				if response.status >= 400 && s.origin != "http://diagnostic.invalid" {
 					log.Printf("api_error request_id=%s method=%s route=%q status=%d duration_ms=%d", requestID, r.Method, r.Pattern, response.status, time.Since(started).Milliseconds())
 				}
@@ -409,7 +417,8 @@ func (s *server) routes() http.Handler {
 				fail(w, 403, "不允许跨站请求")
 				return
 			}
-			if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+			isCoursePart := r.Method == "PUT" && len(strings.Split(strings.Trim(r.URL.Path, "/"), "/")) == 6 && strings.HasPrefix(r.URL.Path, "/api/admin/course-uploads/") && strings.Contains(r.URL.Path, "/parts/")
+			if !isCoursePart && !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 				fail(w, 415, "请使用 JSON 请求")
 				return
 			}
@@ -454,13 +463,25 @@ func newServer(dbPath, web, origin string) (*server, error) {
 		db.Close()
 		return nil, err
 	}
+	if _, err = db.Exec(behaviorSchema); err != nil {
+		db.Close()
+		return nil, err
+	}
 	s := &server{db: db, web: web, origin: origin, secure: strings.HasPrefix(origin, "https://"), otpSecret: token(32), now: time.Now}
 	if err = initFeedback(s.db); err != nil {
 		db.Close()
 		return nil, err
 	}
+	s.courseDir = strings.TrimSpace(os.Getenv("INFOGAP_COURSE_DIR"))
+	if s.courseDir == "" {
+		s.courseDir = filepath.Join(filepath.Dir(dbPath), "courses-private")
+	}
 	s.mailer = sendCodeMail
 	if err = InitBilling(s); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err = initCourses(s.db); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -493,6 +514,7 @@ func main() {
 	defer stop()
 	go s.runPaymentReconciliation(ctx)
 	go s.runRankGifts(ctx)
+	go s.runBehaviorCompaction(ctx)
 	go func() {
 		<-ctx.Done()
 		c, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -121,9 +121,13 @@ func (s *server) addSubscription(w http.ResponseWriter, r *http.Request) {
 		fail(w, 401, "请重新登录")
 		return
 	}
+	if e = loadReadingAccess(tx, u, s.now()); e != nil {
+		fail(w, 500, "套餐权益读取失败")
+		return
+	}
 	s.decorate(u)
 	if !u.Entitlements.Subscriptions {
-		fail(w, 403, "订阅功能需白银及以上有效段位")
+		fail(w, 403, "订阅功能需有效畅读套餐")
 		return
 	}
 	var sub Subscription
@@ -175,9 +179,13 @@ func (s *server) deleteSubscription(w http.ResponseWriter, r *http.Request) {
 		fail(w, 401, "请重新登录")
 		return
 	}
+	if e = loadReadingAccess(tx, u, s.now()); e != nil {
+		fail(w, 500, "套餐权益读取失败")
+		return
+	}
 	s.decorate(u)
 	if !u.Entitlements.Subscriptions {
-		fail(w, 403, "订阅功能需白银及以上有效段位")
+		fail(w, 403, "订阅功能需有效畅读套餐")
 		return
 	}
 	res, e := tx.Exec("DELETE FROM subscriptions WHERE id=? AND user_id=?", idParam(r), u.ID)

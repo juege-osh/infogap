@@ -42,7 +42,7 @@ async function tick() {
   context.result = { order: { ...pending, status: 'success' }, user: { credits: 110 } };
   await tick();
   assert.equal(timers.size, 0);
-  assert.match(element('#membership-checkout').innerHTML, /额度已到账/);
+  assert.match(element('#membership-checkout').innerHTML, /积分已到账/);
   assert.equal(run('state.user.credits'), 110);
   await run('renderCheckout(order)');
   const before = calls;

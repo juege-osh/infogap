@@ -45,11 +45,7 @@ const context = {
 vm.createContext(context);
 vm.runInContext(source.slice(0, source.indexOf("$('#menu-toggle').addEventListener")), context);
 const run = code => vm.runInContext(code, context);
-const durations = [{ months: 1, days: 30, bonus: 0 }, { months: 3, days: 90, bonus: 5 }, { months: 6, days: 180, bonus: 10 }, { months: 12, days: 365, bonus: 20 }];
-const plans = [{ id: 'credits_100', type: 'credits', name: '100积分', credits: 100, amount_cents: 990 }, ...Array.from({ length: 7 }, (_, n) => n + 1).flatMap(tier => durations.map(({ months, days }) => ({
-  id: `rank_${tier}_${months}`, type: 'rank', rank_tier: tier, name: `段位 ${tier} · ${months}个月`, months, days,
-  amount_cents: tier * 10000 + months * 137, monthly_credits: tier * 2000 + months * 37
-})))];
+const plans = [{id:'credits_100',type:'credits',name:'100永久积分',credits:100,amount_cents:990},...[[1,30,8,1800],[3,90,4,3800],[6,180,2,5800],[12,365,0,8800]].map(([months,days,delay,amount])=>({id:`reading_${months}`,type:'reading',name:`${months}个月畅读`,months,days,delay_hours:delay,unlimited_reading:true,list_amount_cents:amount,discount_percent:92,amount_cents:Math.round(amount*.92)}))];
 context.catalog = { enabled: true, channels: ['alipay'], plans };
 context.apiFixture = async (url, options) => {
   if (options) {
@@ -65,65 +61,20 @@ function choosePlan(id) {
   assert(selected, `missing plan ${id}`);
   handlers.change({ target: selected });
 }
-function changeDuration(value, checked = true, insideForm = true) {
-  handlers.change({ target: { name: 'rank_duration', value: String(value), checked, closest: () => insideForm ? {} : null } });
-}
 
-(async () => {
-  run("state.user={id:1,role:'member',tier:'黑铁',tier_index:0,credits:10};state.boot={};state.routeID=1;api=apiFixture;");
-  await run('renderMembership(1)');
-  const html = element('#membership-plans').innerHTML;
-  assert(!html.includes('<select id="rank-duration"'));
-  assert(html.includes('<fieldset class="rank-duration-options"><legend>购买时长</legend>'));
-  const radios = [...html.matchAll(/<input type="radio" name="rank_duration" value="(\d+)"([^>]*)>/g)];
-  assert.deepEqual(radios.map(m => Number(m[1])), [1, 3, 6, 12]);
-  assert.equal(radios.filter(m => m[2].includes('checked')).length, 1);
-  assert.equal(radios.find(m => m[2].includes('checked'))[1], '1');
-  assert(!run('rankDurationOptions()').includes('tabindex="-1"'));
-  assert.equal((run('rankDurationOptions()').match(/<label class="rank-duration-option">/g) || []).length, 4);
-  for (const { days, bonus } of durations) {
-    assert(html.includes(`<small>${days} 天</small>`));
-    assert(html.includes(bonus ? `每期多赠 ${bonus}%` : '基础赠分'));
-  }
-  assert(html.includes('id="billing-selection" class="billing-selection" aria-live="polite"'));
-  assert.equal(element('input[name="plan"]:checked').value, 'credits_100');
-  changeDuration(6);
-  assert.equal(element('input[name="plan"]:checked').value, 'credits_100', 'duration browsing must preserve a selected credit pack');
-  assert(planInputs.filter(p => p.value.startsWith('rank_')).every(p => p.value.endsWith('_6')));
-
-  for (let tier = 1; tier <= 7; tier++) {
-    choosePlan(`rank_${tier}_${run('state.rankMonths')}`);
-    for (const { months } of durations) {
-      changeDuration(months);
-      assert.equal(run('state.rankMonths'), months);
-      assert.equal(planInputs.filter(input => input.checked).length, 1);
-      const selected = element('input[name="plan"]:checked');
-      assert.equal(selected.value, `rank_${tier}_${months}`);
-      const plan = plans.find(p => p.id === selected.value);
-      assert.equal(selected.dataset.planAmount, String(plan.amount_cents));
-      const summary = element('#billing-selection').textContent;
-      assert(summary.includes((plan.amount_cents / 100).toFixed(2)));
-      assert(summary.includes(plan.monthly_credits.toLocaleString('zh-CN')));
-      const form = { id: 'membership-form', elements: { plan: { value: selected.value } }, querySelector: () => element('#submit-button') };
-      await handlers.submit({ target: form, preventDefault() {} });
-      assert.equal(context.lastOrderRequest.plan, plan.id);
-      assert.equal(context.lastOrderRequest.channel, 'alipay');
-      assert.equal(element('#submit-button').disabled, false);
-      assert(element('#membership-checkout').innerHTML.includes((plan.amount_cents / 100).toFixed(2)));
-    }
-  }
-  for (const invalid of [0, 2, 4, 'bad']) { changeDuration(invalid); assert.equal(run('state.rankMonths'), 12); }
-  changeDuration(1, false); assert.equal(run('state.rankMonths'), 12);
-  changeDuration(1, true, false); assert.equal(run('state.rankMonths'), 12);
-  assert.match(run('rankDurationOptions()'), /value="12" checked/);
-  context.catalog.enabled = false;
-  await run('renderMembership(1)');
-  assert(planInputs.every(input => input.disabled));
-  assert.equal((element('#membership-plans').innerHTML.match(/name="rank_duration"/g) || []).length, 4);
-  assert.match(css, /\.rank-duration-grid\{[^}]*display:grid;[^}]*grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/);
-  assert.match(css, /@media\(max-width:760px\)\{\.rank-duration-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
-  assert(css.includes('input:focus-visible+.rank-duration-card'));
-  assert(css.includes('input:checked+.rank-duration-card'));
-  assert(css.includes('@media(prefers-reduced-motion:reduce){.rank-duration-card{transition:none}}'));
-  console.log('PASS: four labeled native-radio durations, days/bonuses/selected and focus styles, responsive grid, all 7 tiers × 4 durations retain tier and submit exact API plan/price/gift, credit-pack preservation, invalid change defense and disabled-payment state.');
-})().catch(error => { console.error(error); process.exitCode = 1; });
+(async()=>{
+ run("state.user={id:1,role:'member',credits:10,points:300};state.boot={};state.routeID=1;api=apiFixture;");
+ await run('renderMembership(1)');
+ const html=element('#membership-plans').innerHTML;
+ assert.equal(planInputs.length,5);assert.equal(planInputs.filter(p=>p.checked).length,1);assert.equal(element('input[name="plan"]:checked').value,'reading_1');
+ assert(!html.includes('段位'));assert(!html.includes('rank_duration'));assert(!html.includes('每期赠'));
+ assert(html.includes('reading-plan-grid'));assert(html.includes('续费')||element('#main').innerHTML.includes('续费'));
+ for(const plan of plans){choosePlan(plan.id);assert.equal(element('input[name="plan"]:checked').value,plan.id);assert(element('#billing-selection').textContent.includes((plan.amount_cents/100).toFixed(2)));const form={id:'membership-form',elements:{plan:{value:plan.id}},querySelector:()=>element('#submit-button')};await handlers.submit({target:form,preventDefault(){}});assert.equal(context.lastOrderRequest.plan,plan.id);assert.equal(context.lastOrderRequest.channel,'alipay');assert(element('#membership-checkout').innerHTML.includes((plan.amount_cents/100).toFixed(2)));}
+ for(const [points,discount] of [[0,100],[99,100],[100,95],[299,95],[300,92],[700,90],[1400,85],[2500,80]]){context.points=points;assert.equal(run('discountPercent(points)'),discount);}
+ assert(run('billingPlanCard(catalog.plans[1],true,true)').includes('¥16.56'));
+ assert(run("billingOrderName({type:'rank',name:'old rank'})").includes('历史权益订单'));
+ context.catalog.channels=['wechat'];await run('renderMembership(1)');assert(planInputs.every(p=>p.disabled));context.catalog.channels=['alipay'];
+ context.catalog.enabled=false;await run('renderMembership(1)');assert(planInputs.every(p=>p.disabled));
+ assert.match(css,/\.reading-plan-grid\{[^}]*grid-template-columns:repeat\(4,minmax\(0,1fr\)\)/);assert(css.includes('.membership-plan:has(input:focus-visible)'));
+ console.log('PASS: reading 1/3/6/12 and credits submit exact API plans/discounted cents, all contribution boundaries, disabled payments, no new rank sale or gift claims; native radio focus styles retained.');
+})().catch(error=>{console.error(error);process.exitCode=1});

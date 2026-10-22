@@ -10,14 +10,7 @@ const widths = [1728, 1280, 1024, 760, 390, 375];
 const user = { id: 1, username: '布局检查', role: 'member', tier: '黑铁', tier_index: 0, earned_tier: '黑铁',
   email: 'layout@example.test', points: 0, contributions: 0, credits: 0, daily_remaining: 1, daily_allowance: 1,
   rank_credits: 0, entitlements: { delay_hours: 72, subscriptions: false, subscription_limit: 0 } };
-const plans = [
-  ...[[1000, 990], [3500, 2900], [10000, 7900]].map(([credits, amount]) => ({ id: `credits_${credits}`, name: `${credits}永久阅读积分`, type: 'credits', credits, amount_cents: amount })),
-  ...Array.from({ length: 7 }, (_, i) => i + 1).flatMap(tier => [1, 3, 6, 12].map(months => ({
-    id: `rank_${tier}_${months}`, name: `${['', '英勇青铜', '荣耀白银', '华贵黄金', '璀璨铂金', '流光翡翠', '华丽钻石', '超凡大师'][tier]} · ${months}个月`,
-    type: 'rank', rank_tier: tier, months, days: months === 12 ? 365 : months * 30, monthly_credits: tier * 2000,
-    amount_cents: tier * 1000 + months * 100
-  })))
-];
+const plans = [...[[1,30,8,1800],[3,90,4,3800],[6,180,2,5800],[12,365,0,8800]].map(([months,days,delay,amount])=>({id:`reading_${months}`,name:`${months}个月畅读`,type:'reading',months,days,delay_hours:delay,amount_cents:amount,list_amount_cents:amount,discount_percent:100,unlimited_reading:true})),{id:'credits_100',type:'credits',name:'100永久积分',credits:100,amount_cents:990}];
 const json = data => ({ status: 200, contentType: 'application/json', body: JSON.stringify(data) });
 const output = [];
 (async () => {
@@ -40,17 +33,17 @@ const output = [];
     const page = await context.newPage();
     const errors = [];page.on('pageerror', error => errors.push(error.message));
     await page.goto(origin + '/#membership');
-    await page.locator('.rank-duration-card').last().waitFor();
-    await page.locator('#rank-plan-grid input[name=plan]').first().waitFor();
+    await page.locator('.reading-plan').last().waitFor();
+    await page.locator('.reading-plan-grid input[name=plan]').first().waitFor();
     for (const width of widths) {
       await page.setViewportSize({ width, height: 1000 });
       for (const theme of ['light', 'dark']) {
         await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
         const boxes = await page.evaluate(() => {
           const box = element => { const r = element.getBoundingClientRect();return { x: r.x, y: r.y, w: r.width, h: r.height, right: r.right, bottom: r.bottom }; };
-          const grid = document.querySelector('.rank-duration-grid'), fieldset = document.querySelector('.rank-duration-options');
+          const grid = document.querySelector('.reading-plan-grid'), fieldset = document.querySelector('.billing-group');
           return { grid: box(grid), fieldset: box(fieldset), legendFloat: getComputedStyle(fieldset.querySelector('legend')).float,
-            cards: [...grid.querySelectorAll('.rank-duration-card')].map(box),
+            cards: [...grid.querySelectorAll('.reading-plan')].map(box),
             gridWidth: grid.clientWidth, gridScroll: grid.scrollWidth, pageWidth: document.documentElement.clientWidth,
             pageScroll: document.documentElement.scrollWidth };
         });
@@ -72,28 +65,19 @@ const output = [];
         assert.equal(rows.length, width <= 760 ? 2 : 1, `${label}: wrong row count`);
         output.push({ width, theme, grid: Math.round(boxes.grid.w), card: Number(boxes.cards[0].w.toFixed(2)), rows: rows.length, pageScroll: boxes.pageScroll });
       }
-      // Real clicks must retain the selected tier and update the exact plan ID.
-      await page.locator('.rank-duration-option').filter({ has: page.locator('input[value="1"]') }).click();
-      await page.locator('label.membership-plan').filter({ has: page.locator('input[value="rank_2_1"]') }).click();
-      await page.locator('.rank-duration-option').filter({ has: page.locator('input[value="12"]') }).click();
-      assert.equal(await page.locator('input[name=plan]:checked').inputValue(), 'rank_2_12');
-      assert.equal(await page.locator('input[name=rank_duration]:checked').inputValue(), '12');
+      for(const month of [1,3,6,12]){await page.locator('label.membership-plan').filter({has:page.locator(`input[value="reading_${month}"]`)}).click();assert.equal(await page.locator('input[name=plan]:checked').inputValue(),`reading_${month}`);}
     }
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.locator('input[name=rank_duration][value="12"]').focus();
-    await page.keyboard.press('ArrowLeft');
-    assert.equal(await page.locator('input[name=rank_duration]:checked').inputValue(), '6');
-    assert.equal(await page.locator('input[name=plan]:checked').inputValue(), 'rank_2_6');
+    await page.setViewportSize({width:390,height:844});await page.locator('input[value="reading_12"]').focus();await page.keyboard.press('ArrowLeft');assert.equal(await page.locator('input[name=plan]:checked').inputValue(),'reading_6');
     if (process.env.INFOGAP_LAYOUT_EVIDENCE) {
       fs.mkdirSync(process.env.INFOGAP_LAYOUT_EVIDENCE, { recursive: true });
       for (const width of [1728, 390]) {
         await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
         await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
-        await page.locator('.rank-duration-options').scrollIntoViewIfNeeded();
-        await page.screenshot({ path: path.join(process.env.INFOGAP_LAYOUT_EVIDENCE, `duration-${width}.png`) });
+        await page.locator('.billing-group').first().scrollIntoViewIfNeeded();
+        await page.screenshot({ path: path.join(process.env.INFOGAP_LAYOUT_EVIDENCE, `reading-${width}.png`) });
       }
     }
     assert.deepEqual(errors, [], 'unexpected browser errors');
-    console.log(JSON.stringify({ result: 'PASS', browser: await browser.version(), layouts: output, interaction: 'real clicks and keyboard preserve exact tier/duration plan' }, null, 2));
+    console.log(JSON.stringify({ result: 'PASS', browser: await browser.version(), layouts: output, interaction: 'real clicks and keyboard choose exact reading package' }, null, 2));
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

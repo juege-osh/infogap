@@ -69,7 +69,7 @@ func TestInternalSourceHiddenAcrossMemberResponsesAndSearch(t *testing.T) {
 		mustStatus(t, w, 200)
 		assertNoPrivateSource(t, w.Body.String())
 	}
-	_, _ = s.db.Exec("UPDATE users SET points=700 WHERE id=?", readerID)
+	paidReadingFixture(t, s, readerID, 8)
 	mustStatus(t, request(s, "POST", "/api/subscriptions", map[string]string{"kind": "tag", "value": "LINUX DO"}, reader), 201)
 	w = request(s, "GET", "/api/gaps?view=subscribed", nil, reader)
 	if !strings.Contains(w.Body.String(), `"total":0`) {

@@ -8,7 +8,7 @@ import (
 
 func TestDailyTierScheduleAndLocalMidnight(t *testing.T) {
 	s := testServer(t)
-	for i, amount := range []int{1, 2, 3, 5, 8, 10, 15, 20, 30, 50} {
+	for i, amount := range []int{1, 1, 1, 1, 1, 1, 1, 1, 1, 1} {
 		u := s.decorate(&User{Role: "member", Points: tiers[i].MinPoints, Day: dayKey(s.now()), DailyUsed: 1})
 		if u.DailyAllowance != amount || u.DailyRemaining != amount-1 {
 			t.Fatalf("tier %d: %+v", i, u)

@@ -77,7 +77,7 @@ func TestTravelFacetsAndFiltersPreservePublicationDelay(t *testing.T) {
 	hidden := travelGap(t, s, "法国", "欧洲", "景点避坑", "published")
 	travelGap(t, s, "尼泊尔", "南亚", "交通住宿", "pending")
 	travelGap(t, s, "智利", "南美洲", "安全提醒", "disputed")
-	if _, err := s.db.Exec("UPDATE gaps SET released_at=? WHERE id=?", stamp(s.now().Add(-72*time.Hour+time.Second)), hidden); err != nil {
+	if _, err := s.db.Exec("UPDATE gaps SET released_at=? WHERE id=?", stamp(s.now().Add(time.Second)), hidden); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.db.Exec("UPDATE users SET membership_until=? WHERE id=?", stamp(s.now().Add(time.Hour)), readerID); err != nil {
@@ -126,7 +126,7 @@ func TestTravelFacetsRetainPriorUnlockAndHidePrivateSourceTags(t *testing.T) {
 	if got := travelCountries(t, s, reader); !slices.Equal(got, []string{"日本"}) {
 		t.Fatal("prior unlock was hidden after rank change", got)
 	}
-	if got := travelCountries(t, s, ""); len(got) != 0 {
+	if got := travelCountries(t, s, ""); !slices.Equal(got, []string{"日本"}) {
 		t.Fatal("guest inferred reader's unlock", got)
 	}
 	private := travelGap(t, s, "LinuxDO", "东亚", "优惠渠道", "published")

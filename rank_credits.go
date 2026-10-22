@@ -46,8 +46,18 @@ func loadRankCredits(q rankCreditReader, u *User, now time.Time) error {
 	var next sql.NullString
 	err := q.QueryRow("SELECT COALESCE(SUM(remaining),0),MIN(expires_at) FROM rank_credit_batches WHERE user_id=? AND remaining>0 AND expires_at>? AND expired_at=''", u.ID, stamp(now)).Scan(&u.RankCredits, &next)
 	u.RankCreditsExpiresAt = next.String
-	u.AvailableCredits = u.DailyRemaining + u.RankCredits + u.Credits
-	return err
+	if err != nil {
+		return err
+	}
+	u.InviteCredits, u.InviteCreditsExpiresAt, err = loadInviteCredits(q, u.ID, now)
+	if err != nil {
+		return err
+	}
+	if err = loadReadingAccess(q, u, now); err != nil {
+		return err
+	}
+	u.AvailableCredits = u.DailyRemaining + u.RankCredits + u.InviteCredits + u.Credits
+	return nil
 }
 
 // Call outside an open transaction/rows. Transactional readers pass their own
@@ -57,10 +67,12 @@ func (s *server) decorateWithRank(u *User) *User {
 	if u != nil && u.ID > 0 {
 		if err := loadRankCredits(s.db, u, s.now()); err != nil {
 			u.RankCredits, u.RankCreditsExpiresAt = 0, ""
+			u.InviteCredits, u.InviteCreditsExpiresAt = 0, ""
+			u.ReadingActive, u.ReadingUntil, u.ReadingDelayHours = false, "", 0
 			u.AvailableCredits = u.DailyRemaining + u.Credits
 		}
 	}
-	return u
+	return s.decorate(u)
 }
 
 type rankCreditBatch struct {

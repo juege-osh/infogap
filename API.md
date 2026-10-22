@@ -95,17 +95,19 @@ GET /api/admin/overview additionally returns summary_jobs:{pending,completed,fai
 API 错误包含 `request_id`，并通过 `X-Request-ID` 返回。服务器错误日志记录相同编号、接口路由、状态和耗时，不记录邮箱、验证码或正文。
 
 
-## 段位赠分有效期与购买快照
+## 畅读套餐、积分与历史支付兼容
 
-`User.credits` 始终表示永久积分。`rank_credits` 为当前有效段位赠分，`rank_credits_expires_at` 为最近有余额批次的到期时间（RFC3339，无则空）。`available_credits = daily_remaining + rank_credits + credits`。解锁按每日赠分、最快到期段位赠分、永久积分依次扣减。
+`GET /api/billing/plans` 仅出售 `reading_1/3/6/12` 四个畅读套餐和三个永久积分包。畅读套餐 `type="reading"`，1/3/6/12个月对应30/90/180/365天，标价1800/3800/5800/8800分，`delay_hours=8/4/2/0`，`unlimited_reading=true`。返回 `list_amount_cents`（标价）、`discount_percent`（整数百分比）和 `amount_cents`（实付）。贡献值100/300/700/1400/2500对应95/92/90/85/80%，只对畅读套餐有效，最终金额四舍五入到分。订单保存实际快照，待付款期间贡献变化不重定价。
 
-当前段位计划仍为 `rank_<tier>_<months>`，1/3/6/12个月对应30/90/180/365天。年付每期最终赠分按青铜至大师为2000/4000/6000/8000/10000/12000/14000，不再次叠加20%；其他时长采用 `round(年付最终值 × (100+加成) / 120)`，加成0/5/10/20。前端直接展示计划的 `monthly_credits`，不自行计算。价格与时长不变。
+`User.reading_active/reading_until/reading_delay_hours` 表示当前畅读及连续有效期；`entitlements.unlimited_reading` 表示无限阅读权限。新套餐付款后接续既有付费时段，速度在对应周期开始时改变。`GET /api/billing/reading-status` 返回 `{user,periods:[{plan,name,delay_hours,starts_at,ends_at}],renewal_policy:"append"}`。`periods` 列出新套餐；`user` 合并成功历史段位与会员订单的有效权益，不根据旧缓存或邀请活动判断付费状态。
 
-`GET /api/billing/rank-status` 增加 `batches:[{id,amount,remaining,granted_at,expires_at,policy_version:2}]`、`gift_policy_version:2`、`gift_valid_days:30`，原 `periods/next_gift_at/user` 保留。只返回有效未用完批次，按最近到期排序。每期从计划应到账时起30天有效；补发过期月份不会复活。升档补差新批次从支付确认生效起30天，已有批次不续期。
+付费段位停售，新建 `rank_*` 或调用升档报价返回410。历史订单的金额、时长和赠分快照不变，仍可查询及幂等结算。旧段位成功订单按原档位且最多8小时延迟保留畅读；旧 `monthly/yearly` 成功订单按8小时保留。旧订单迟到付款也接续已有付费时段。旧段位未来赠分继续按原快照发放，政策2从每期计划应到账日起30天有效，过期月份不会因补发复活；历史政策1永久赠分不回收。
 
-`GET /api/me/activity` 的 `ledger` 项新增 `expires_at`（无则空）。新段位类型为 `rank_gift/rank_unlock/rank_refund/rank_expire`；旧 `rank_monthly_gift` 保留历史永久赠分含义。已发永久余额不追溯扣回，购买和贡献奖励仍永久。退款只回原来源，过期段位赠分不退为永久积分。
+`User.credits` 为永久积分；`invite_credits` 为有效邀请赠分；`rank_credits` 为有效历史段位赠分。后两者的 `*_expires_at` 返回最近有余额批次到期时间（RFC3339，无则空）。`available_credits = daily_remaining + invite_credits + rank_credits + credits`。按每日赠分、邀请赠分、历史限时段位赠分、永久积分依次扣减。
 
-已有支付订单的金额、时长和每期赠分快照不改；待付款旧订单复用原快照，已支付旧订单未来期数按原数量发放到新规则批次。迁移将旧赠分事件标为政策1，新批次/事件明确为政策2，不重发既有赠分。详细结算与迁移规则见 `docs/billing.md`。
+新邀请名单奖励一次1000积分，30天有效，不授予畅读或段位。旧邀请剩余部分仅在永久账本和余额可核对时迁到30天批次，已用部分不追扣，不改购买或贡献积分；无法核对时原余额不动并留迁移凭证。退款只回原未过期批次，不延长时间，不变成永久积分。
+
+`GET /api/me/activity` 的流水包含 `expires_at`。新邀请仍使用 `invite_campaign` 并附到期时间，旧记录为空；邀请其他类型为 `invite_unlock/invite_refund/invite_expire/invite_migrate_out/invite_migrate_in`。历史段位为 `rank_gift/rank_unlock/rank_refund/rank_expire`，旧 `rank_monthly_gift` 表示历史永久赠分。`GET /api/billing/rank-status` 保留历史期数、下期赠分及有效批次查询。详细结算与迁移规则见 `docs/billing.md`。
 
 
 ## 1.0.11 原始来源随详情解锁
@@ -155,3 +157,9 @@ Revision {id,gap_id,status:'pending'|'rejected'|'approved'|'superseded',review_n
 `POST /api/admin/invites/{id}/campaign/emails` 接收 `{emails:[...]}`，向既有活动追加奖励邮箱，返回 `{added,existing,total}`，不返回名单或邀请码。仅真实站长可用，测试模式禁止操作。活动必须仍有效；撤销、过期或次数用尽返回409，不存在或普通非活动邀请码返回404。固定邀请码继续沿用原码，不改变有效期、使用次数规则或奖励。
 
 邮箱沿用创建活动时的格式校验，去首尾空白、转小写并去重。单次输入最多1000条，活动累计最多1000个不同邮箱，超限整批拒绝。`existing` 按本批规范化后已在活动中的不同邮箱数计算，重复提交返回 `added:0`。只追加，不删除原成员、不更改已发奖励；新加邮箱仍须在今后的首次注册时满足活动条件，已有账号不会补发。追加名单和计数审计同事务提交，失败完整回滚。
+
+## 单独购买课程
+
+`POST /api/billing/orders` 支持 `{plan:"course_<正整数课程ID>",channel:"alipay"}`。只允许已发布且已定价课程，课程价格由服务端读取，不适用贡献折扣。响应订单为 `type:"course"`，新增 `course_id`，并带 `name/list_amount_cents/amount_cents/discount_percent:100`。`days/credits/months` 为0，`unlimited_reading` 为false。未发布或不存在返回404，未定价或已拥有返回409。
+
+课程不出现在 `/api/billing/plans` 的固定套餐列表。沿用本人订单查询和支付宝核验；成功只授予对应课程访问权限，不增加积分或会员权益。已生成订单使用价格快照，修改课程价格不影响该订单。客户端不能提交价格、课程授权、积分数量或用户编号。课程正文及媒体权限由课程接口单独检查，畅读与阅读积分不能解锁课程。

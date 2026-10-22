@@ -18,25 +18,31 @@ func TestSubscriptionEntitlementsAndLimits(t *testing.T) {
 	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/save", g), nil, member), 200)
 	mustStatus(t, request(s, "POST", "/api/subscriptions", map[string]string{"kind": "category", "value": "物理"}, member), 403)
 	mustStatus(t, request(s, "GET", "/api/gaps?view=subscribed", nil, member), 403)
-	for _, c := range []struct{ points, limit int }{{0, 0}, {700, 3}, {1400, 8}, {2500, 12}, {4000, 20}, {6500, 40}, {15000, 40}} {
+	for _, c := range []struct{ points, limit int }{{0, 0}, {700, 0}, {1400, 0}, {2500, 0}, {4000, 0}, {6500, 0}, {15000, 0}} {
 		u := s.decorate(&User{Points: c.points, Role: "member"})
 		if u.Entitlements.SubscriptionLimit != c.limit || u.Entitlements.Subscriptions != (c.limit > 0) {
 			t.Fatalf("points=%d entitlements=%+v", c.points, u.Entitlements)
 		}
 	}
-	_, _ = s.db.Exec("UPDATE users SET points=700 WHERE id=?", id)
-	for _, v := range []string{"量子", "CRISPR", "气候"} {
+	paidReadingFixture(t, s, id, 8)
+	for _, v := range func() []string {
+		v := []string{"量子", "CRISPR", "气候"}
+		for i := 3; i < 40; i++ {
+			v = append(v, fmt.Sprintf("tag%d", i))
+		}
+		return v
+	}() {
 		mustStatus(t, request(s, "POST", "/api/subscriptions", map[string]string{"kind": "tag", "value": v}, member), 201)
 	}
 	mustStatus(t, request(s, "POST", "/api/subscriptions", map[string]string{"kind": "tag", "value": "crispr"}, member), 200)
 	mustStatus(t, request(s, "POST", "/api/subscriptions", map[string]string{"kind": "tag", "value": "材料"}, member), 409)
 	var n int
 	_ = s.db.QueryRow("SELECT COUNT(*) FROM subscriptions WHERE user_id=?", id).Scan(&n)
-	if n != 3 {
+	if n != 40 {
 		t.Fatal("duplicate counted", n)
 	}
 	other, otherCookie := account(t, s, "other@example.org", "member", 10)
-	_, _ = s.db.Exec("UPDATE users SET points=700 WHERE id=?", other)
+	paidReadingFixture(t, s, other, 8)
 	var sub int64
 	_ = s.db.QueryRow("SELECT id FROM subscriptions WHERE user_id=? LIMIT 1", id).Scan(&sub)
 	mustStatus(t, request(s, "DELETE", fmt.Sprintf("/api/subscriptions/%d", sub), nil, otherCookie), 404)
@@ -54,16 +60,17 @@ func TestPaidMembershipExpiryAndNoContentBypass(t *testing.T) {
 		t.Fatal(e)
 	}
 	s.decorate(u)
-	if !u.IsMember || u.Entitlements.SubscriptionLimit != 20 || u.Points != 0 || u.Credits != 10 || u.TierIndex != 0 {
+	if !u.IsMember || u.Entitlements.SubscriptionLimit != 0 || u.Points != 0 || u.Credits != 10 || u.TierIndex != 0 {
 		t.Fatalf("membership changed content rights %+v", u)
 	}
+	paidReadingFixture(t, s, id, 8)
 	g := gap(t, s, "rare", "published", nil)
 	_, _ = s.db.Exec("UPDATE gaps SET tags='[\"CRISPR\"]' WHERE id=?", g)
-	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", g), nil, member), 403)
+	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/gaps/%d/unlock", g), nil, member), 200)
 	mustStatus(t, request(s, "POST", "/api/subscriptions", map[string]string{"kind": "tag", "value": "CRISPR"}, member), 201)
 	w := request(s, "GET", "/api/gaps?view=subscribed", nil, member)
 	mustStatus(t, w, 200)
-	if !strings.Contains(w.Body.String(), "新的科研进展标题") || strings.Contains(w.Body.String(), "PROTECTED_SECRET") {
+	if !strings.Contains(w.Body.String(), "新的科研进展标题") || !strings.Contains(w.Body.String(), "PROTECTED_SECRET") {
 		t.Fatal("subscription filter/content protection wrong", w.Body.String())
 	}
 	base := s.now()
@@ -112,9 +119,9 @@ func TestMembershipRenewalAndRevokeAudit(t *testing.T) {
 func TestConcurrentSubscriptionLimit(t *testing.T) {
 	s := testServer(t)
 	id, c := account(t, s, "member@example.org", "member", 10)
-	_, _ = s.db.Exec("UPDATE users SET points=700 WHERE id=?", id)
+	paidReadingFixture(t, s, id, 8)
 	var wg sync.WaitGroup
-	for i := range 10 {
+	for i := range 50 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -127,7 +134,7 @@ func TestConcurrentSubscriptionLimit(t *testing.T) {
 	wg.Wait()
 	var count int
 	_ = s.db.QueryRow("SELECT COUNT(*) FROM subscriptions WHERE user_id=?", id).Scan(&count)
-	if count != 3 {
+	if count != 40 {
 		t.Fatal("limit exceeded", count)
 	}
 }
@@ -158,7 +165,7 @@ func TestMembershipMigrationPreservesUsers(t *testing.T) {
 func TestMembershipDowngradeRetainsOverflowSubscriptions(t *testing.T) {
 	s := testServer(t)
 	id, c := account(t, s, "member@example.org", "member", 10)
-	_, _ = s.db.Exec("UPDATE users SET points=700,membership_until=? WHERE id=?", stamp(s.now().Add(time.Hour)), id)
+	paidReadingFixture(t, s, id, 8)
 	for _, tag := range []string{"one", "two", "three", "four"} {
 		mustStatus(t, request(s, "POST", "/api/subscriptions", map[string]string{"kind": "tag", "value": tag}, c), 201)
 	}
@@ -168,9 +175,9 @@ func TestMembershipDowngradeRetainsOverflowSubscriptions(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "新的科研进展标题") {
 		t.Fatal("paid subscription not active")
 	}
-	_, _ = s.db.Exec("UPDATE users SET membership_until='' WHERE id=?", id)
+	_, _ = s.db.Exec("UPDATE reading_entitlements SET ends_at=? WHERE user_id=?", stamp(s.now()), id)
 	w = request(s, "GET", "/api/gaps?view=subscribed", nil, c)
-	mustStatus(t, w, 200)
+	mustStatus(t, w, 403)
 	if strings.Contains(w.Body.String(), "新的科研进展标题") {
 		t.Fatal("overflow subscription remained active")
 	}
@@ -180,7 +187,7 @@ func TestMembershipDowngradeRetainsOverflowSubscriptions(t *testing.T) {
 		Limit int            `json:"limit"`
 	}
 	_ = json.Unmarshal(w.Body.Bytes(), &response)
-	if len(response.Items) != 4 || response.Limit != 3 || response.Items[3].Active {
+	if len(response.Items) != 4 || response.Limit != 0 || response.Items[3].Active {
 		t.Fatal("overflow config lost or active")
 	}
 }

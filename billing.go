@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,16 +27,22 @@ type billingService struct {
 	createMu       sync.Mutex
 }
 type billingPlan struct {
-	RankTier       int    `json:"rank_tier"`
-	Months         int    `json:"months"`
-	MonthlyCredits int    `json:"monthly_credits"`
-	RankSnapshot   string `json:"-"`
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	Type           string `json:"type"`
-	AmountCents    int64  `json:"amount_cents"`
-	Days           int    `json:"days"`
-	Credits        int    `json:"credits"`
+	CourseID             int64  `json:"course_id,omitempty"`
+	ListAmountCents      int64  `json:"list_amount_cents"`
+	DiscountPercent      int    `json:"discount_percent"`
+	DelayHours           int    `json:"delay_hours"`
+	UnlimitedReading     bool   `json:"unlimited_reading"`
+	ReadingPolicyVersion int    `json:"-"`
+	RankTier             int    `json:"rank_tier"`
+	Months               int    `json:"months"`
+	MonthlyCredits       int    `json:"monthly_credits"`
+	RankSnapshot         string `json:"-"`
+	ID                   string `json:"id"`
+	Name                 string `json:"name"`
+	Type                 string `json:"type"`
+	AmountCents          int64  `json:"amount_cents"`
+	Days                 int    `json:"days"`
+	Credits              int    `json:"credits"`
 }
 
 var centTestPlan = billingPlan{ID: "payment_test", Name: "1分钱真实支付测试", Type: "payment_test", AmountCents: 1}
@@ -45,29 +50,35 @@ var centTestPlan = billingPlan{ID: "payment_test", Name: "1分钱真实支付测
 var billingPlans = newBillingPlans()
 
 type billingOrder struct {
-	RankTier        int    `json:"rank_tier"`
-	Months          int    `json:"months"`
-	MonthlyCredits  int    `json:"monthly_credits"`
-	RankSnapshot    string `json:"-"`
-	ID              string `json:"id"`
-	UserID          int64  `json:"-"`
-	Plan            string `json:"plan"`
-	Name            string `json:"name"`
-	Type            string `json:"type"`
-	AmountCents     int64  `json:"amount_cents"`
-	Days            int    `json:"days"`
-	Credits         int    `json:"credits"`
-	Channel         string `json:"channel"`
-	Status          string `json:"status"`
-	PayURL          string `json:"pay_url"`
-	QRPayload       string `json:"qr_payload"`
-	PaymentKind     string `json:"payment_kind"`
-	ExpiresAt       string `json:"expires_at"`
-	PaidAt          string `json:"paid_at"`
-	CreatedAt       string `json:"created_at"`
-	MembershipUntil string `json:"membership_until"`
-	PlatformTradeNo string `json:"-"`
-	LastCheckedAt   string `json:"-"`
+	CourseID             int64  `json:"course_id,omitempty"`
+	ListAmountCents      int64  `json:"list_amount_cents"`
+	DiscountPercent      int    `json:"discount_percent"`
+	DelayHours           int    `json:"delay_hours"`
+	UnlimitedReading     bool   `json:"unlimited_reading"`
+	ReadingPolicyVersion int    `json:"-"`
+	RankTier             int    `json:"rank_tier"`
+	Months               int    `json:"months"`
+	MonthlyCredits       int    `json:"monthly_credits"`
+	RankSnapshot         string `json:"-"`
+	ID                   string `json:"id"`
+	UserID               int64  `json:"-"`
+	Plan                 string `json:"plan"`
+	Name                 string `json:"name"`
+	Type                 string `json:"type"`
+	AmountCents          int64  `json:"amount_cents"`
+	Days                 int    `json:"days"`
+	Credits              int    `json:"credits"`
+	Channel              string `json:"channel"`
+	Status               string `json:"status"`
+	PayURL               string `json:"pay_url"`
+	QRPayload            string `json:"qr_payload"`
+	PaymentKind          string `json:"payment_kind"`
+	ExpiresAt            string `json:"expires_at"`
+	PaidAt               string `json:"paid_at"`
+	CreatedAt            string `json:"created_at"`
+	MembershipUntil      string `json:"membership_until"`
+	PlatformTradeNo      string `json:"-"`
+	LastCheckedAt        string `json:"-"`
 }
 
 const billingSchema = `
@@ -101,6 +112,15 @@ func InitBilling(s *server) error {
 		return err
 	}
 	if err := migrateRankBilling(s.db); err != nil {
+		return err
+	}
+	if err := migrateReadingBilling(s.db); err != nil {
+		return err
+	}
+	if err := ensureColumn(s.db, "billing_orders", "course_id", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := initInviteCredits(s.db, s.now()); err != nil {
 		return err
 	}
 	if err := s.topupOldPurchases(); err != nil {
@@ -151,6 +171,7 @@ func migrateBillingCredits(db *sql.DB) error {
 func (s *server) billingRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/billing/plans", s.billingCatalog)
 	m.HandleFunc("GET /api/billing/rank-status", s.rankStatus)
+	m.HandleFunc("GET /api/billing/reading-status", s.readingStatus)
 	m.HandleFunc("GET /api/billing/rank-upgrade", s.rankUpgradeQuote)
 	m.HandleFunc("POST /api/billing/orders", s.billingCreate)
 	m.HandleFunc("GET /api/billing/orders", s.billingList)
@@ -176,14 +197,22 @@ func (s *server) billingCatalog(w http.ResponseWriter, r *http.Request) {
 	if !s.billingEnabled() {
 		reason = s.billingReason()
 	}
-	send(w, 200, map[string]any{"enabled": s.billingEnabled(), "disabled_reason": reason, "plans": billingPlans, "channels": []string{"alipay"}, "auto_renew": false})
+	points := 0
+	if u := s.current(r); u != nil {
+		points = u.Points
+	}
+	plans := make([]billingPlan, 0, len(billingPlans))
+	for _, p := range billingPlans {
+		plans = append(plans, pricedBillingPlan(p, points))
+	}
+	send(w, 200, map[string]any{"enabled": s.billingEnabled(), "disabled_reason": reason, "plans": plans, "channels": []string{"alipay"}, "auto_renew": false, "discount_tiers": contributionDiscounts, "discount_percent": contributionDiscountPercent(points), "discount_basis": "contribution_points"})
 }
 
-const billingOrderCols = "id,user_id,plan,name,amount_cents,days,credits,channel,status,pay_payload,platform_trade_no,expires_at,paid_at,created_at,membership_until,last_checked_at,rank_tier,months,monthly_credits,rank_snapshot"
+const billingOrderCols = "id,user_id,plan,name,amount_cents,days,credits,channel,status,pay_payload,platform_trade_no,expires_at,paid_at,created_at,membership_until,last_checked_at,rank_tier,months,monthly_credits,rank_snapshot,reading_policy_version,reading_delay_hours,list_amount_cents,discount_percent,course_id"
 
 func billingScan(row scanner) (*billingOrder, error) {
 	o := &billingOrder{}
-	err := row.Scan(&o.ID, &o.UserID, &o.Plan, &o.Name, &o.AmountCents, &o.Days, &o.Credits, &o.Channel, &o.Status, &o.QRPayload, &o.PlatformTradeNo, &o.ExpiresAt, &o.PaidAt, &o.CreatedAt, &o.MembershipUntil, &o.LastCheckedAt, &o.RankTier, &o.Months, &o.MonthlyCredits, &o.RankSnapshot)
+	err := row.Scan(&o.ID, &o.UserID, &o.Plan, &o.Name, &o.AmountCents, &o.Days, &o.Credits, &o.Channel, &o.Status, &o.QRPayload, &o.PlatformTradeNo, &o.ExpiresAt, &o.PaidAt, &o.CreatedAt, &o.MembershipUntil, &o.LastCheckedAt, &o.RankTier, &o.Months, &o.MonthlyCredits, &o.RankSnapshot, &o.ReadingPolicyVersion, &o.DelayHours, &o.ListAmountCents, &o.DiscountPercent, &o.CourseID)
 	if err != nil {
 		return nil, err
 	}
@@ -196,6 +225,16 @@ func billingScan(row scanner) (*billingOrder, error) {
 		if strings.HasPrefix(o.Plan, "rank_upgrade_") {
 			o.Type = "rank_upgrade"
 		}
+	}
+	if o.ReadingPolicyVersion > 0 {
+		o.Type = "reading"
+		o.UnlimitedReading = true
+	}
+	if o.CourseID > 0 {
+		o.Type, o.Days, o.UnlimitedReading = "course", 0, false
+	}
+	if o.ListAmountCents == 0 {
+		o.ListAmountCents = o.AmountCents
 	}
 	if o.Plan == centTestPlan.ID {
 		o.Type, o.Days = "payment_test", 0
@@ -285,15 +324,29 @@ func (s *server) billingCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		plan = &centTestPlan
 	}
-	if strings.HasPrefix(req.Plan, "rank_upgrade_") {
-		target, e := strconv.Atoi(strings.TrimPrefix(req.Plan, "rank_upgrade_"))
-		if e != nil {
-			fail(w, 400, "请选择有效段位")
+	if strings.HasPrefix(req.Plan, "rank_") {
+		fail(w, 410, "付费段位已停止出售，请选择畅读套餐；历史订单仍可查询和核验")
+		return
+	}
+	if strings.HasPrefix(req.Plan, "course_") {
+		id, ok := parseCoursePlanID(req.Plan)
+		if !ok {
+			fail(w, 400, "请选择有效课程")
 			return
 		}
-		plan, e = s.rankUpgradePlan(u.ID, target)
-		if e != nil {
-			fail(w, 409, e.Error())
+		var err error
+		plan, err = s.courseBillingPlan(u.ID, id)
+		if err != nil {
+			switch {
+			case errors.Is(err, errCourseNotFound):
+				fail(w, 404, "课程不存在")
+			case errors.Is(err, errCourseNotPurchasable):
+				fail(w, 409, "该课程暂未开放购买")
+			case errors.Is(err, errCourseAlreadyOwned):
+				fail(w, 409, "你已拥有该课程，无需重复购买")
+			default:
+				fail(w, 500, "课程暂时无法读取")
+			}
 			return
 		}
 	}
@@ -301,6 +354,8 @@ func (s *server) billingCreate(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "请选择有效套餐")
 		return
 	}
+	quoted := pricedBillingPlan(*plan, u.Points)
+	plan = &quoted
 	// Serialize only checkout creation so repeated clicks reuse the same pending invoice.
 	s.billing.createMu.Lock()
 	defer s.billing.createMu.Unlock()
@@ -342,14 +397,30 @@ func (s *server) billingCreate(w http.ResponseWriter, r *http.Request) {
 	id := newPaymentNumber("P")
 	expires := now.Add(30 * time.Minute)
 	storedDays := plan.Days
-	if plan.Type == "credits" || plan.Type == "payment_test" {
+	if plan.Type == "credits" || plan.Type == "payment_test" || plan.Type == "course" {
 		// Old databases require days>0. The saved plan and credit snapshot determine
 		// the product; this placeholder never grants or exposes membership days.
 		storedDays = 1
 	}
-	_, err = s.db.ExecContext(r.Context(), `INSERT INTO billing_orders(id,user_id,plan,name,amount_cents,days,credits,channel,expires_at,created_at,updated_at,rank_tier,months,monthly_credits,rank_snapshot) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, u.ID, plan.ID, plan.Name, plan.AmountCents, storedDays, plan.Credits, req.Channel, stamp(expires), stamp(now), stamp(now), plan.RankTier, plan.Months, plan.MonthlyCredits, plan.RankSnapshot)
+	insertSQL := `INSERT INTO billing_orders(id,user_id,plan,name,amount_cents,days,credits,channel,expires_at,created_at,updated_at,rank_tier,months,monthly_credits,rank_snapshot,reading_policy_version,reading_delay_hours,list_amount_cents,discount_percent,course_id) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?`
+	insertArgs := []any{id, u.ID, plan.ID, plan.Name, plan.AmountCents, storedDays, plan.Credits, req.Channel, stamp(expires), stamp(now), stamp(now), plan.RankTier, plan.Months, plan.MonthlyCredits, plan.RankSnapshot, plan.ReadingPolicyVersion, plan.DelayHours, plan.ListAmountCents, plan.DiscountPercent, plan.CourseID}
+	if plan.CourseID > 0 {
+		// Close the interval between quoting and insertion when another order's
+		// verified callback has already granted this course.
+		insertSQL += " WHERE NOT EXISTS(SELECT 1 FROM course_access WHERE user_id=? AND course_id=?)"
+		insertArgs = append(insertArgs, u.ID, plan.CourseID)
+	}
+	insertResult, err := s.db.ExecContext(r.Context(), insertSQL, insertArgs...)
 	if err != nil {
 		fail(w, 500, "订单暂时无法创建")
+		return
+	}
+	if n, e := insertResult.RowsAffected(); e != nil || n != 1 {
+		if e != nil {
+			fail(w, 500, "订单状态读取失败")
+		} else {
+			fail(w, 409, "你已拥有该课程，无需重复购买")
+		}
 		return
 	}
 	result, providerErr := s.billing.provider.CreatePayment(id, "InfoGap "+plan.Name, plan.AmountCents, req.Channel, expires)
@@ -557,6 +628,20 @@ func (s *server) billingApply(result huifuPaymentResult, eventKey string) error 
 			return errors.New("invalid test payment snapshot")
 		}
 		_, err = tx.Exec("UPDATE billing_orders SET status='success',platform_trade_no=?,paid_at=?,updated_at=? WHERE id=?", result.PlatformTradeNo, stamp(now), stamp(now), o.ID)
+	} else if o.CourseID > 0 {
+		courseID, valid := parseCoursePlanID(o.Plan)
+		if !valid || courseID != o.CourseID || o.Credits != 0 || o.Days != 0 || o.RankTier != 0 || o.Months != 0 || o.MonthlyCredits != 0 || o.ReadingPolicyVersion != 0 || o.DelayHours != 0 || o.DiscountPercent != 100 || o.ListAmountCents != o.AmountCents {
+			return errors.New("invalid course payment snapshot")
+		}
+		if _, err = tx.Exec("UPDATE billing_orders SET status='success',platform_trade_no=?,paid_at=?,updated_at=? WHERE id=?", result.PlatformTradeNo, stamp(now), stamp(now), o.ID); err != nil {
+			return err
+		}
+		err = grantCourseAccess(tx, o, now)
+	} else if o.ReadingPolicyVersion > 0 {
+		if _, err = tx.Exec("UPDATE billing_orders SET status='success',platform_trade_no=?,paid_at=?,updated_at=? WHERE id=?", result.PlatformTradeNo, stamp(now), stamp(now), o.ID); err != nil {
+			return err
+		}
+		err = applyReadingOrder(tx, o, now)
 	} else if o.RankTier > 0 {
 		if _, err = tx.Exec("UPDATE billing_orders SET status='success',platform_trade_no=?,paid_at=?,updated_at=? WHERE id=?", result.PlatformTradeNo, stamp(now), stamp(now), o.ID); err != nil {
 			return err
@@ -588,7 +673,10 @@ func (s *server) billingApply(result huifuPaymentResult, eventKey string) error 
 		if err = tx.QueryRow("SELECT membership_until FROM users WHERE id=?", o.UserID).Scan(&currentUntil); err != nil {
 			return err
 		}
-		start := now
+		start, e := nextPaidReadingStart(tx, o.UserID, now)
+		if e != nil {
+			return e
+		}
 		if old, e := time.Parse(time.RFC3339, currentUntil); e == nil && old.After(start) {
 			start = old
 		}

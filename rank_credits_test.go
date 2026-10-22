@@ -22,7 +22,7 @@ func TestRankGiftCatalogueFinalAnnualValuesAndRounding(t *testing.T) {
 	for tier := 1; tier <= 7; tier++ {
 		for index, months := range []int{1, 3, 6, 12} {
 			s, _, _, cookie := billingFixture(t)
-			o := billingPurchase(t, s, cookie, fmt.Sprintf("rank_%d_%d", tier, months), "alipay")
+			o := legacyRankPurchase(t, s, cookie, fmt.Sprintf("rank_%d_%d", tier, months), "alipay")
 			if o.MonthlyCredits != want[tier-1][index] || o.AmountCents != rankPrice(tier, months) || o.Days != rankDays(months) {
 				t.Fatalf("wrong snapshot %+v", o)
 			}
@@ -33,7 +33,7 @@ func TestRankGiftCatalogueFinalAnnualValuesAndRounding(t *testing.T) {
 func TestRankGiftScheduledExpiryAndNoLoginCatchup(t *testing.T) {
 	s, _, user, cookie := billingFixture(t)
 	start := s.now()
-	o := billingPurchase(t, s, cookie, "rank_1_3", "alipay")
+	o := legacyRankPurchase(t, s, cookie, "rank_1_3", "alipay")
 	for range 2 {
 		if err := s.billingApply(billingSuccess(o), "quarter"); err != nil {
 			t.Fatal(err)
@@ -80,7 +80,7 @@ func TestRankGiftScheduledExpiryAndNoLoginCatchup(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Batches) != 1 || result.User.RankCredits != 1750 || result.User.Credits != 10 || result.User.AvailableCredits != 1750+10+2 || result.User.RankCreditsExpiresAt != stamp(start.Add(90*24*time.Hour)) || result.Batches[0].PolicyVersion != 2 {
+	if len(result.Batches) != 1 || result.User.RankCredits != 1750 || result.User.Credits != 10 || result.User.AvailableCredits != 1750+10+1 || result.User.RankCreditsExpiresAt != stamp(start.Add(90*24*time.Hour)) || result.Batches[0].PolicyVersion != 2 {
 		t.Fatal(w.Body.String())
 	}
 }
@@ -91,13 +91,14 @@ func TestRankGiftThreeSourceSpendAndRefundPreservesExpiry(t *testing.T) {
 			s, _, user, cookie := billingFixture(t)
 			_, admin := account(t, s, founderEmail, "admin", 0)
 			start := s.now()
-			o := billingPurchase(t, s, cookie, "rank_6_1", "alipay")
+			o := legacyRankPurchase(t, s, cookie, "rank_6_1", "alipay")
 			if err := s.billingApply(billingSuccess(o), "base"); err != nil {
 				t.Fatal(err)
 			}
-			// Leave 2 daily points, a 2-point earlier batch and a 3-point later
-			// batch, so an 8-point unlock needs 1 permanent point as well.
-			if _, err := s.db.Exec("UPDATE users SET day_key=?,daily_used=13 WHERE id=?", dayKey(start), user); err != nil {
+			// Legacy gifts may outlive reading access. One daily point plus five
+			// gift points leave two permanent points for an eight-point article.
+			expireLegacyReading(t, s, user)
+			if _, err := s.db.Exec("UPDATE users SET day_key=?,daily_used=0 WHERE id=?", dayKey(start), user); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := s.db.Exec("UPDATE rank_credit_batches SET amount=2,remaining=2 WHERE user_id=?", user); err != nil {
@@ -117,7 +118,7 @@ func TestRankGiftThreeSourceSpendAndRefundPreservesExpiry(t *testing.T) {
 			s.db.QueryRow("SELECT credits,daily_used FROM users WHERE id=?", user).Scan(&permanent, &daily)
 			s.db.QueryRow("SELECT rank_cost,cost FROM unlocks WHERE user_id=? AND gap_id=?", user, id).Scan(&rank, &stored)
 			s.db.QueryRow("SELECT COUNT(*) FROM rank_credit_spends WHERE user_id=?", user).Scan(&entries)
-			if permanent != 9 || daily != 15 || rank != 5 || stored != 1 || entries != 2 || rankBalance(t, s, user) != 0 {
+			if permanent != 8 || daily != 1 || rank != 5 || stored != 2 || entries != 2 || rankBalance(t, s, user) != 0 {
 				t.Fatal(permanent, daily, rank, stored, entries)
 			}
 			if expired {
@@ -205,7 +206,7 @@ func TestRankGiftOldPaidAndPendingSnapshotsArePreserved(t *testing.T) {
 				if err := migrateRankBilling(s.db); err != nil {
 					t.Fatal(err)
 				}
-				reused := billingPurchase(t, s, cookie, "rank_1_3", "alipay")
+				reused := legacyRankPurchase(t, s, cookie, "rank_1_3", "alipay")
 				if reused.ID != orderID || reused.MonthlyCredits != 315 || provider.creates != 0 {
 					t.Fatal("pending snapshot rewritten")
 				}
@@ -243,10 +244,11 @@ func TestRankGiftOldPaidAndPendingSnapshotsArePreserved(t *testing.T) {
 
 func TestRankGiftEarliestExpiryAndConcurrentUnlock(t *testing.T) {
 	s, _, user, cookie := billingFixture(t)
-	o := billingPurchase(t, s, cookie, "rank_1_1", "alipay")
+	o := legacyRankPurchase(t, s, cookie, "rank_1_1", "alipay")
 	if err := s.billingApply(billingSuccess(o), "first"); err != nil {
 		t.Fatal(err)
 	}
+	expireLegacyReading(t, s, user)
 	var period, early int64
 	s.db.QueryRow("SELECT period_id,id FROM rank_credit_batches WHERE user_id=?", user).Scan(&period, &early)
 	if _, err := s.db.Exec("UPDATE rank_credit_batches SET amount=2,remaining=2 WHERE id=?", early); err != nil {
@@ -285,14 +287,15 @@ func TestRankGiftEarliestExpiryAndConcurrentUnlock(t *testing.T) {
 
 func TestRankGiftUnlockFailureRollsBackAllSources(t *testing.T) {
 	s, _, user, cookie := billingFixture(t)
-	o := billingPurchase(t, s, cookie, "rank_6_1", "alipay")
+	o := legacyRankPurchase(t, s, cookie, "rank_6_1", "alipay")
 	if err := s.billingApply(billingSuccess(o), "rollback-gift"); err != nil {
 		t.Fatal(err)
 	}
+	expireLegacyReading(t, s, user)
 	if _, err := s.db.Exec("UPDATE rank_credit_batches SET amount=2,remaining=2 WHERE user_id=?", user); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec("UPDATE users SET day_key=?,daily_used=13 WHERE id=?", dayKey(s.now()), user); err != nil {
+	if _, err := s.db.Exec("UPDATE users SET day_key=?,daily_used=0 WHERE id=?", dayKey(s.now()), user); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.db.Exec("CREATE TRIGGER reject_rank_spend BEFORE INSERT ON ledger WHEN NEW.kind='rank_unlock' BEGIN SELECT RAISE(ABORT,'test rollback'); END"); err != nil {
@@ -306,7 +309,7 @@ func TestRankGiftUnlockFailureRollsBackAllSources(t *testing.T) {
 	}
 	s.db.QueryRow("SELECT COUNT(*) FROM unlocks WHERE user_id=?", user).Scan(&unlocks)
 	s.db.QueryRow("SELECT COUNT(*) FROM rank_credit_spends WHERE user_id=?", user).Scan(&spends)
-	if permanent != 10 || daily != 13 || rankBalance(t, s, user) != 2 || unlocks != 0 || spends != 0 {
+	if permanent != 10 || daily != 0 || rankBalance(t, s, user) != 2 || unlocks != 0 || spends != 0 {
 		t.Fatal("failed unlock leaked a partial debit", permanent, daily, rankBalance(t, s, user), unlocks, spends)
 	}
 }
@@ -317,12 +320,12 @@ func TestRankGiftLateUpgradeCallbackSeparatesScheduledBaseAndDelta(t *testing.T)
 	if _, err := s.db.Exec("UPDATE sessions SET expires_at=? WHERE user_id=?", stamp(start.Add(100*24*time.Hour)), user); err != nil {
 		t.Fatal(err)
 	}
-	o := billingPurchase(t, s, cookie, "rank_1_3", "alipay")
+	o := legacyRankPurchase(t, s, cookie, "rank_1_3", "alipay")
 	if err := s.billingApply(billingSuccess(o), "base-quarter"); err != nil {
 		t.Fatal(err)
 	}
 	s.now = func() time.Time { return start.Add(29 * 24 * time.Hour) }
-	upgrade := billingPurchase(t, s, cookie, "rank_upgrade_7", "alipay")
+	upgrade := legacyRankPurchase(t, s, cookie, "rank_upgrade_7", "alipay")
 	// No requests or gift worker occur at the next period boundary. The signed
 	// payment callback itself must separate the scheduled base from its delta.
 	s.now = func() time.Time { return start.Add(31 * 24 * time.Hour) }

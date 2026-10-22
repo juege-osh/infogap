@@ -191,13 +191,13 @@ func TestGapCodeSearchPreservesAuthorizationAndFilters(t *testing.T) {
 			t.Fatal("numeric text query was incorrectly treated as an ID", items)
 		}
 	}
-	for _, filters := range []string{"&category=" + url.QueryEscape("化学"), "&level=rare", "&view=saved", "&view=subscribed", "&country=" + url.QueryEscape("日本")} {
+	for _, filters := range []string{"&category=" + url.QueryEscape("化学"), "&level=rare", "&view=saved", "&country=" + url.QueryEscape("日本")} {
 		if items := codeSearch(t, s, "q=PT01"+filters, reader); len(items) != 0 {
 			t.Fatal("code ignored another explicit filter", filters)
 		}
 	}
 	hidden := gap(t, s, "ordinary", "published", nil)
-	if _, err := s.db.Exec("UPDATE gaps SET released_at=? WHERE id=?", stamp(s.now().Add(-72*time.Hour+time.Second)), hidden); err != nil {
+	if _, err := s.db.Exec("UPDATE gaps SET released_at=? WHERE id=?", stamp(s.now().Add(time.Second)), hidden); err != nil {
 		t.Fatal(err)
 	}
 	hiddenQuery := "q=" + gapCode(hidden, "ordinary", "物理")
