@@ -275,10 +275,30 @@ func (s *server) stats(u *User) map[string]int {
 	}
 	return m
 }
+func (s *server) categoryCounts(u *User) map[string]int {
+	counts := map[string]int{}
+	for _, c := range categories {
+		counts[c] = 0
+	}
+	visible, args := s.visibilityClause(u)
+	rows, err := s.db.Query("SELECT g.category,COUNT(*) FROM gaps g WHERE g.status='published'"+visible+" GROUP BY g.category", args...)
+	if err != nil {
+		return counts
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var category string
+		var n int
+		if rows.Scan(&category, &n) == nil {
+			counts[category] = n
+		}
+	}
+	return counts
+}
 func (s *server) bootstrap(w http.ResponseWriter, r *http.Request) {
 	_, err := smtpSettings()
 	u := s.current(r)
-	send(w, 200, map[string]any{"user": u, "stats": s.stats(u), "categories": categories, "topic_codes": topicCodes, "travel_topics": travelTopics, "travel_regions": travelRegions, "tiers": tiers, "rules": map[string]any{"welcome": 10, "contribution": 100, "unlock_costs": unlockCosts, "daily_reset_timezone": "Asia/Shanghai"}, "mail_ready": err == nil})
+	send(w, 200, map[string]any{"user": u, "stats": s.stats(u), "categories": categories, "category_counts": s.categoryCounts(u), "topic_codes": topicCodes, "travel_topics": travelTopics, "travel_regions": travelRegions, "tiers": tiers, "rules": map[string]any{"welcome": 10, "contribution": 100, "contribution_credits": map[string]int{"ordinary": 100, "featured": 200, "rare": 400, "exclusive": 800}, "unlock_costs": unlockCosts, "daily_reset_timezone": "Asia/Shanghai"}, "mail_ready": err == nil})
 }
 func (s *server) routes() http.Handler {
 	m := http.NewServeMux()
@@ -418,10 +438,22 @@ func newServer(dbPath, web, origin string) (*server, error) {
 	return s, nil
 }
 func main() {
+	submissionBridge := flag.Bool("submission-review-bridge", false, "run the constrained submission review bridge")
 	addr := flag.String("addr", "127.0.0.1:18869", "listen address")
 	db := flag.String("db", "state/infogap.sqlite", "database file")
 	web := flag.String("web", "web", "static directory")
 	flag.Parse()
+	if *submissionBridge {
+		s, err := newSubmissionReviewServer(*db, os.Getenv("INFOGAP_PUBLIC_URL"))
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer s.db.Close()
+		if err := runSubmissionReviewBridge(s, os.Stdin, os.Stdout); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	s, err := newServer(*db, *web, os.Getenv("INFOGAP_PUBLIC_URL"))
 	if err != nil {
 		log.Fatal(err)

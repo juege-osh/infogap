@@ -33,7 +33,7 @@ func (s *server) leaderboard(w http.ResponseWriter, r *http.Request) {
 	if page < 1 {
 		page = 1
 	}
-	rows, err := s.db.Query(`SELECT u.id,u.username,u.points,COUNT(cr.gap_id),COALESCE(SUM(CASE WHEN cr.featured>0 OR cr.rare>0 THEN 1 ELSE 0 END),0) FROM users u LEFT JOIN contribution_rewards cr ON cr.user_id=u.id AND cr.revoked=0 WHERE u.disabled=0 AND u.role!='admin' AND u.id NOT IN (SELECT user_id FROM test_accounts) GROUP BY u.id ORDER BY u.points DESC,5 DESC,4 DESC,u.id ASC`)
+	rows, err := s.db.Query(`SELECT u.id,u.username,u.points,COUNT(cr.gap_id),COALESCE(SUM(CASE WHEN cr.featured>0 OR cr.rare>0 THEN 1 ELSE 0 END),0) FROM users u LEFT JOIN contribution_rewards cr ON cr.user_id=u.id AND cr.revoked=0 WHERE u.disabled=0 AND u.role!='admin' AND u.id NOT IN (SELECT user_id FROM test_accounts) GROUP BY u.id ORDER BY u.points DESC,u.created_at ASC,u.id ASC`)
 	if err != nil {
 		fail(w, 500, "排行榜暂不可用")
 		return

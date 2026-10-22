@@ -70,3 +70,21 @@ func stringsContains(s, v string) bool {
 	}
 	return false
 }
+
+func TestLeaderboardTiesUseRegistrationTime(t *testing.T) {
+	s := testServer(t)
+	first, cookie := account(t, s, "first@example.test", "member", 0)
+	second, _ := account(t, s, "second@example.test", "member", 0)
+	s.db.Exec("UPDATE users SET points=300,contributions=100,created_at='2026-10-22T00:00:00Z' WHERE id=?", first)
+	s.db.Exec("UPDATE users SET points=300,created_at='2026-10-21T00:00:00Z' WHERE id=?", second)
+	w := request(s, "GET", "/api/leaderboard?tier=2", nil, cookie)
+	var data struct {
+		Items []leaderboardEntry `json:"items"`
+	}
+	if e := json.Unmarshal(w.Body.Bytes(), &data); e != nil {
+		t.Fatal(e)
+	}
+	if len(data.Items) != 2 || data.Items[0].ID != second {
+		t.Fatal(w.Body.String())
+	}
+}

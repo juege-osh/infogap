@@ -1,6 +1,8 @@
 """Use the official Codex CLI app-server as a text-only editor, with bounded output."""
 import json,os,pathlib,queue,signal,subprocess,sys,threading,time
-if os.environ.get('INFOGAP_REVIEW_MODE')=='1':
+if os.environ.get('INFOGAP_SUBMISSION_REVIEW_MODE')=='1':
+ from submission_contract import MODEL,REASONING,SCHEMA,INSTRUCTION
+elif os.environ.get('INFOGAP_REVIEW_MODE')=='1':
  from review_contract import MODEL,REASONING,SCHEMA,INSTRUCTION
 else:
  from contract import MODEL,REASONING,SCHEMA,INSTRUCTION

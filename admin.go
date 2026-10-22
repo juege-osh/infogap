@@ -175,9 +175,11 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Action string `json:"action"`
-		Level  string `json:"level"`
-		Note   string `json:"note"`
+		Action                 string `json:"action"`
+		ExpectedUpdatedAt      string `json:"expected_updated_at"`
+		ExpectedSubmissionHash string `json:"expected_submission_hash"`
+		Level                  string `json:"level"`
+		Note                   string `json:"note"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -202,6 +204,21 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 	if e != nil {
 		fail(w, 404, "信息不存在")
 		return
+	}
+	if (in.ExpectedUpdatedAt != "" && g.UpdatedAt != in.ExpectedUpdatedAt) || (in.ExpectedSubmissionHash != "" && submissionHash(g) != in.ExpectedSubmissionHash) {
+		fail(w, 409, "投稿已修改，请重新审核")
+		return
+	}
+	if in.ExpectedSubmissionHash != "" && g.AuthorID.Valid {
+		var authorDisabled int
+		if e = tx.QueryRow("SELECT disabled FROM users WHERE id=?", g.AuthorID.Int64).Scan(&authorDisabled); e != nil {
+			fail(w, 500, "读取投稿者状态失败")
+			return
+		}
+		if authorDisabled != 0 {
+			fail(w, 409, "投稿者已停用，请站长确认后处理")
+			return
+		}
 	}
 	if g.AuthorID.Valid && g.AuthorID.Int64 == u.ID {
 		fail(w, 403, "不能审核自己的投稿，请由另一位审核员复核")
