@@ -15,7 +15,7 @@ def main():
  for item in payload:
   if item.get('id') in sources:item['source_name']=sources[item['id']]['source_name']
  cmd=[CLI,'--no-daemon','-a','never','app-server','--listen','stdio://']
- configs={'model_provider':'infogap_official','model_providers.infogap_official.name':'OpenAI','model_providers.infogap_official.base_url':'https://chatgpt.com/backend-api/codex','model_providers.infogap_official.wire_api':'responses','model_providers.infogap_official.requires_openai_auth':True,'model_providers.infogap_official.supports_websockets':False,'model_providers.infogap_official.request_max_retries':0,'model_providers.infogap_official.stream_max_retries':0,'web_search':'disabled','mcp_servers':{},'project_doc_max_bytes':0,'features.skip_host_skill_discovery':True}
+ configs={'model_provider':'infogap_official','model_providers.infogap_official.name':'OpenAI','model_providers.infogap_official.base_url':'https://chatgpt.com/backend-api/codex','model_providers.infogap_official.wire_api':'responses','model_providers.infogap_official.requires_openai_auth':True,'model_providers.infogap_official.supports_websockets':False,'model_providers.infogap_official.request_max_retries':1,'model_providers.infogap_official.stream_max_retries':0,'web_search':'disabled','mcp_servers':{},'project_doc_max_bytes':0,'features.skip_host_skill_discovery':True}
  for key,value in configs.items():cmd+=['-c',key+'='+json.dumps(value)]
  for feature in ('shell_tool','unified_exec','multi_agent','goals','apps','plugins','hooks','browser_use','browser_use_external','computer_use','image_generation','view_image','skill_search','workspace_dependencies','memories','in_app_browser','code_mode','code_mode_host','daemon_auto_start','unbounded_connection_retries'):cmd+=['--disable',feature]
  events=queue.Queue();process=subprocess.Popen(cmd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,env=os.environ.copy())
@@ -61,7 +61,9 @@ def main():
     elif kind not in ('reasoning','userMessage','contextCompaction',None):
      print('unexpected_item_kind='+str(kind),file=sys.stderr,flush=True)
      raise RuntimeError('unexpected_tool_or_item')
-   elif method=='error':raise RuntimeError('official_provider_error')
+   elif method=='error':
+    info=(params.get('error') or {}).get('codexErrorInfo');safe={'error_info_type':info if isinstance(info,str) and info.replace('_','').isalnum() else list(info) if isinstance(info,dict) else type(info).__name__,'will_retry':bool(params.get('willRetry'))}
+    print(json.dumps(safe),file=sys.stderr,flush=True);raise RuntimeError('official_provider_error')
    elif method=='turn/completed':
     turn=params.get('turn',{})
     if turn.get('status')!='completed' or not isinstance(final,str) or not usage:raise RuntimeError('incomplete_turn')
