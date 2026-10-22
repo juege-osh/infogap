@@ -245,18 +245,19 @@ func TestGapCodeSurvivesReviewLevelChange(t *testing.T) {
 			t.Fatal("old code changed identity or ignored current classification", items)
 		}
 	}
-	// Reclassification of the single topic changes the middle segment, but all
-	// previously shared valid codes still locate the same authorized content.
-	edit := map[string]any{
-		"title": "调整为旅行主题后的实用信息整理", "summary": "这条公开信息说明旅行适用条件、办理步骤和实际限制，读者可据此核对。",
-		"body":     strings.Repeat("正文保留原始公开材料的条件和限制，不添加缺乏依据的新事实。", 4),
-		"category": "出行旅行", "evidence": "official", "tags": []string{"国家:日本", "地区:东亚", "旅行:交通住宿"},
-	}
-	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/admin/gaps/%d", id), edit, admin), 200)
-	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/admin/review/%d", id), map[string]string{"action": "approve", "level": "ordinary"}, admin), 200)
+	// An approved published revision freezes the previous code even when
+	// reclassified; current fields still determine filtering and reading cost.
+	item := editingItem(t, s, id, admin)
+	oldCode := item.Gap.Code
+	edit := editInput(item, "调整为旅行主题后的实用信息整理")
+	edit.Category = "出行旅行"
+	edit.Tags = []string{"国家:日本", "地区:东亚", "旅行:交通住宿"}
+	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/submissions/%d/edit", id), edit, admin), 200)
+	rev := editingItem(t, s, id, admin).Revision
+	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/admin/revisions/%d/review", rev.ID), map[string]string{"action": "approve", "level": "ordinary", "edit_token": rev.EditToken}, admin), 200)
 	for _, code := range []string{"PT01", "JX-WL-01", "XY-WL-01", "DJ-WL-01", "PT-LX-01", "pt-lx-01"} {
 		items := codeSearch(t, s, "q="+code, admin)
-		if len(items) != 1 || items[0].ID != id || items[0].Code != "PT-LX-01" || items[0].Category != "出行旅行" || items[0].UnlockCost != 1 {
+		if len(items) != 1 || items[0].ID != id || items[0].Code != oldCode || items[0].Category != "出行旅行" || items[0].UnlockCost != 1 {
 			t.Fatal("topic change broke a stable reference", code, items)
 		}
 	}

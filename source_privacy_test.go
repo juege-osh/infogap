@@ -172,7 +172,7 @@ func TestSourceVisibilityMigrationAndEditAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	private := gap(t, s, "ordinary", "published", nil)
-	public := gap(t, s, "ordinary", "published", nil)
+	public := gap(t, s, "ordinary", "pending", nil)
 	_, _ = s.db.Exec("UPDATE gaps SET source_url='https://linux.do/t/123' WHERE id=?", private)
 	if _, err = s.db.Exec("ALTER TABLE gaps DROP COLUMN source_visibility"); err != nil {
 		t.Fatal(err)

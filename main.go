@@ -27,7 +27,7 @@ import (
 )
 
 const founderEmail = "1402272093@qq.com"
-const version = "1.0.13"
+const version = "1.0.14"
 
 var buildCommit = "dev"
 
@@ -302,7 +302,7 @@ func (s *server) categoryCounts(u *User) map[string]int {
 func (s *server) bootstrap(w http.ResponseWriter, r *http.Request) {
 	_, err := smtpSettings()
 	u := s.current(r)
-	send(w, 200, map[string]any{"user": u, "stats": s.stats(u), "categories": categories, "category_counts": s.categoryCounts(u), "topic_codes": topicCodes, "travel_topics": travelTopics, "travel_regions": travelRegions, "tiers": tiers, "rules": map[string]any{"welcome": 0, "contribution": 100, "contribution_credits": map[string]int{"ordinary": 100, "featured": 200, "rare": 400, "exclusive": 800}, "unlock_costs": unlockCosts, "daily_reset_timezone": "Asia/Shanghai"}, "mail_ready": err == nil})
+	send(w, 200, map[string]any{"user": u, "stats": s.stats(u), "categories": categories, "category_counts": s.categoryCounts(u), "topic_codes": topicCodes, "travel_topics": travelTopics, "travel_regions": travelRegions, "tiers": tiers, "rules": map[string]any{"welcome": 0, "contribution": 100, "contribution_credits": map[string]int{"ordinary": 100, "featured": 200, "rare": 400, "exclusive": 800}, "contribution_points": map[string]int{"ordinary": 20, "featured": 80, "rare": 200, "exclusive": 500}, "rank_gift_valid_days": 30, "unlock_costs": unlockCosts, "daily_reset_timezone": "Asia/Shanghai"}, "mail_ready": err == nil})
 }
 func (s *server) routes() http.Handler {
 	m := http.NewServeMux()
@@ -325,6 +325,12 @@ func (s *server) routes() http.Handler {
 	m.HandleFunc("POST /api/gaps/{id}/save", s.saveGap)
 	m.HandleFunc("POST /api/gaps/{id}/report", s.reportGap)
 	m.HandleFunc("POST /api/submissions", s.submit)
+	m.HandleFunc("GET /api/me/submissions", s.mySubmissions)
+	m.HandleFunc("GET /api/submissions/{id}/edit", s.getSubmissionEdit)
+	m.HandleFunc("POST /api/submissions/{id}/edit", s.editSubmission)
+	m.HandleFunc("GET /api/admin/revisions", s.listRevisions)
+	m.HandleFunc("POST /api/admin/revisions/{id}/review", s.reviewRevision)
+	m.HandleFunc("POST /api/admin/users/{id}/credits/deduct", s.deductUserCredits)
 	m.HandleFunc("GET /api/me/activity", s.activity)
 	m.HandleFunc("GET /api/subscriptions", s.listSubscriptions)
 	m.HandleFunc("POST /api/subscriptions", s.addSubscription)
@@ -332,6 +338,7 @@ func (s *server) routes() http.Handler {
 	m.HandleFunc("GET /api/admin/overview", s.overview)
 	m.HandleFunc("POST /api/admin/invites", s.newInvite)
 	m.HandleFunc("GET /api/admin/invites/{id}/campaign", s.getInviteCampaign)
+	m.HandleFunc("POST /api/admin/invites/{id}/campaign/emails", s.addInviteCampaignEmails)
 	m.HandleFunc("POST /api/admin/invites/{id}/revoke", s.revokeInvite)
 	m.HandleFunc("POST /api/admin/review/{id}", s.review)
 	m.HandleFunc("POST /api/admin/gaps/{id}", s.editGap)
@@ -436,6 +443,14 @@ func newServer(dbPath, web, origin string) (*server, error) {
 		return nil, err
 	}
 	if _, err = db.Exec(inviteCampaignSchema); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err = initSubmissionEdits(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err = initAdminCredits(db); err != nil {
 		db.Close()
 		return nil, err
 	}

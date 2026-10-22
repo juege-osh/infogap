@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -49,8 +50,8 @@ const usableInviteSQL = "active=1 AND (permanent=1 OR (uses<max_uses AND expires
 const inviteCreateBodyLimit = 320 * 1024
 
 // Up to 1000 addresses may exceed the ordinary 64 KiB API limit. Only this
-// admin endpoint gets the larger bounded decoder; strict JSON rules stay intact.
-func decodeInviteCreate(w http.ResponseWriter, r *http.Request, in *inviteCreateInput) bool {
+// campaign admin endpoints get the larger bounded decoder; strict JSON rules stay intact.
+func decodeInviteCreate(w http.ResponseWriter, r *http.Request, in any) bool {
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		fail(w, 415, "请使用 JSON 请求")
 		return false
@@ -80,12 +81,24 @@ func (in *inviteCreateInput) normalizeCampaign() (bool, error) {
 	if in.RewardRank != "bronze" || in.RewardDays < 1 || in.RewardDays > 365 || in.RewardCredits < 1 || in.RewardCredits > 100000 {
 		return false, errors.New("活动奖励需为青铜段位，期限 1–365 天，永久积分 1–100000")
 	}
+	emails, err := normalizeCampaignEmails(in.Emails)
+	if err != nil {
+		return false, err
+	}
+	in.Emails = emails
+	return true, nil
+}
+
+func normalizeCampaignEmails(input []string) ([]string, error) {
+	if len(input) == 0 || len(input) > 1000 {
+		return nil, errors.New("活动名单需包含 1–1000 个邮箱")
+	}
 	emails := []string{}
 	seen := map[string]bool{}
-	for _, raw := range in.Emails {
+	for _, raw := range input {
 		email := strings.ToLower(strings.TrimSpace(raw))
 		if !validEmail(email) {
-			return false, errors.New("活动名单含无效邮箱，请检查后重试")
+			return nil, errors.New("活动名单含无效邮箱，请检查后重试")
 		}
 		if !seen[email] {
 			emails = append(emails, email)
@@ -93,8 +106,94 @@ func (in *inviteCreateInput) normalizeCampaign() (bool, error) {
 		}
 	}
 	sort.Strings(emails)
-	in.Emails = emails
-	return true, nil
+	return emails, nil
+}
+
+func (s *server) addInviteCampaignEmails(w http.ResponseWriter, r *http.Request) {
+	u := s.staff(w, r, true)
+	if u == nil {
+		return
+	}
+	if u.TestMode {
+		fail(w, 403, "请先退出测试模式")
+		return
+	}
+	var in struct {
+		Emails []string `json:"emails"`
+	}
+	if !decodeInviteCreate(w, r, &in) {
+		return
+	}
+	emails, err := normalizeCampaignEmails(in.Emails)
+	if err != nil {
+		fail(w, 400, err.Error())
+		return
+	}
+	id := idParam(r)
+	if id <= 0 {
+		fail(w, 400, "邀请码编号不正确")
+		return
+	}
+	tx, err := s.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		fail(w, 500, "追加名单失败")
+		return
+	}
+	defer tx.Rollback()
+	cookie, _ := r.Cookie("infogap_session")
+	var allowed bool
+	if err = tx.QueryRowContext(r.Context(), "SELECT role='admin' AND disabled=0 AND NOT EXISTS(SELECT 1 FROM test_sessions WHERE session_hash=?) FROM users WHERE id=?", digest(cookie.Value), u.ID).Scan(&allowed); err != nil || !allowed {
+		fail(w, 403, "没有操作权限，请确认已退出测试模式")
+		return
+	}
+	var usable bool
+	err = tx.QueryRowContext(r.Context(), "SELECT "+usableInviteSQL+" FROM invite_campaigns c JOIN invites i ON i.id=c.invite_id WHERE c.invite_id=?", stamp(s.now()), id).Scan(&usable)
+	if err == sql.ErrNoRows {
+		fail(w, 404, "此邀请码没有活动奖励")
+		return
+	}
+	if err != nil {
+		fail(w, 500, "读取活动失败")
+		return
+	}
+	if !usable {
+		fail(w, 409, "邀请码已停用、过期或用完，不能追加名单")
+		return
+	}
+	added := 0
+	for _, email := range emails {
+		result, e := tx.ExecContext(r.Context(), "INSERT INTO invite_campaign_members(invite_id,email) VALUES(?,?) ON CONFLICT(invite_id,email) DO NOTHING", id, email)
+		if e != nil {
+			fail(w, 500, "名单未保存，请重试")
+			return
+		}
+		n, e := result.RowsAffected()
+		if e != nil {
+			fail(w, 500, "名单未保存，请重试")
+			return
+		}
+		added += int(n)
+	}
+	var total int
+	if err = tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM invite_campaign_members WHERE invite_id=?", id).Scan(&total); err != nil {
+		fail(w, 500, "名单未保存，请重试")
+		return
+	}
+	if total > 1000 {
+		fail(w, 409, "活动名单累计最多 1000 个邮箱，本次未追加")
+		return
+	}
+	existing := len(emails) - added
+	note := fmt.Sprintf("追加活动名单：新增 %d 人，已有 %d 人，累计 %d 人；原奖励与已发放记录不变", added, existing, total)
+	if err = audit(tx, r.Context(), u.ID, "append_invite_campaign_emails", strconv.FormatInt(id, 10), note, stamp(s.now())); err != nil {
+		fail(w, 500, "名单未保存，请重试")
+		return
+	}
+	if err = tx.Commit(); err != nil {
+		fail(w, 500, "追加失败，请刷新名单后重试")
+		return
+	}
+	send(w, 200, map[string]int{"added": added, "existing": existing, "total": total})
 }
 
 func insertInviteCampaign(tx *sql.Tx, inviteID int64, in inviteCreateInput) error {

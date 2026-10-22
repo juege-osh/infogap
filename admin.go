@@ -122,7 +122,12 @@ func (s *server) overview(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	rows.Close()
-	send(w, 200, map[string]any{"stats": s.stats(u), "queue": queue, "content": content, "users": users, "invites": invites, "sources": sources, "reports": reports, "summary_jobs": summaryJobs})
+	revisions, e := s.revisionsFor(u, "pending")
+	if e != nil {
+		fail(w, 500, "修订稿读取失败")
+		return
+	}
+	send(w, 200, map[string]any{"revisions": revisions, "stats": s.stats(u), "queue": queue, "content": content, "users": users, "invites": invites, "sources": sources, "reports": reports, "summary_jobs": summaryJobs})
 }
 func (s *server) newInvite(w http.ResponseWriter, r *http.Request) {
 	u := s.staff(w, r, true)
@@ -367,6 +372,9 @@ func (s *server) review(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if e == nil {
+		_, e = tx.Exec("UPDATE gaps SET edit_version=edit_version+1 WHERE id=?", id)
+	}
+	if e == nil {
 		e = audit(tx, r.Context(), u.ID, in.Action, strconv.FormatInt(id, 10), in.Note, at)
 	}
 	if e != nil || tx.Commit() != nil {
@@ -536,6 +544,10 @@ func (s *server) editGap(w http.ResponseWriter, r *http.Request) {
 		fail(w, 404, "信息不存在")
 		return
 	}
+	if g.Status == "published" {
+		fail(w, 409, "已发布内容请通过修订入口提交，审核通过前保留公开原版")
+		return
+	}
 	if g.Status == "disputed" {
 		fail(w, 409, "证伪记录需保留，请另建新稿并说明更正依据")
 		return
@@ -549,7 +561,7 @@ func (s *server) editGap(w http.ResponseWriter, r *http.Request) {
 	if in.SourceVisibility != nil {
 		visibility = *in.SourceVisibility
 	}
-	_, e = tx.Exec("UPDATE gaps SET title=?,summary=?,body=?,category=?,evidence=?,tags=?,source_visibility=?,status='pending',updated_at=? WHERE id=?", in.Title, in.Summary, in.Body, in.Category, in.Evidence, string(tags), visibility, at, id)
+	_, e = tx.Exec("UPDATE gaps SET title=?,summary=?,body=?,category=?,evidence=?,tags=?,source_visibility=?,status='pending',updated_at=?,edit_version=edit_version+1 WHERE id=?", in.Title, in.Summary, in.Body, in.Category, in.Evidence, string(tags), visibility, at, id)
 	if e == nil {
 		before, _ := json.Marshal(map[string]any{"title": g.Title, "summary": g.Summary, "body": g.Body, "category": g.Category, "evidence": g.Evidence, "tags": g.Tags, "status": g.Status, "source_visibility": g.SourceVisibility})
 		e = audit(tx, r.Context(), u.ID, "edit_gap", strconv.FormatInt(id, 10), string(before), at)

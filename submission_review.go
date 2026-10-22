@@ -37,7 +37,7 @@ type submissionCheck struct {
 }
 
 func submissionHash(g *Gap) string {
-	b, _ := json.Marshal([]any{g.ID, g.Title, g.Summary, g.Body, g.Category, g.Level, g.Evidence, g.SourceName, g.SourceURL, g.SourceVisibility, g.PublishedAt, g.Tags, g.AuthorID.Int64})
+	b, _ := json.Marshal([]any{g.ID, g.Title, g.Summary, g.Body, g.Category, g.Level, g.Evidence, g.SourceName, g.SourceURL, g.SourceVisibility, g.PublishedAt, g.Tags, g.AuthorID.Int64, g.EditVersion})
 	return digest(string(b))
 }
 func (s *server) initSubmissionReview() error {

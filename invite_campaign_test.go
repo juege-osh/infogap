@@ -391,6 +391,209 @@ func TestPermanentInviteBeyondHundredUsesAndNinetyDaysUntilRevoked(t *testing.T)
 	}
 }
 
+func appendCampaignEmails(t *testing.T, s *server, admin string, id int64, emails []string) *httptest.ResponseRecorder {
+	t.Helper()
+	return request(s, "POST", fmt.Sprintf("/api/admin/invites/%d/campaign/emails", id), map[string]any{"emails": emails}, admin)
+}
+
+func assertCampaignAppendCounts(t *testing.T, w *httptest.ResponseRecorder, added, existing, total int) {
+	t.Helper()
+	mustStatus(t, w, 200)
+	var got map[string]int
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || len(got) != 3 || got["added"] != added || got["existing"] != existing || got["total"] != total {
+		t.Fatal("unexpected append receipt", err, w.Body.String())
+	}
+}
+
+func TestInviteCampaignAppendPrivacyPermissionsAndRegistrationOnly(t *testing.T) {
+	s := testServer(t)
+	_, admin := account(t, s, founderEmail, "admin", 0)
+	existingID, member := account(t, s, "append-existing@example.org", "member", 12)
+	_, reviewer := account(t, s, "append-reviewer@example.org", "reviewer", 0)
+	r := createCampaignFixture(t, s, admin, []string{"append-awarded@example.org"})
+	awarded, _ := campaignRegister(t, s, "append-awarded@example.org", "原活动成员", r.Code)
+	for _, auth := range []struct {
+		cookie string
+		status int
+	}{{"", 401}, {member, 403}, {reviewer, 403}} {
+		w := appendCampaignEmails(t, s, auth.cookie, r.ID, []string{"append-new@example.org"})
+		mustStatus(t, w, auth.status)
+		if strings.Contains(w.Body.String(), "@") {
+			t.Fatal("list leaked in denied response")
+		}
+	}
+	mustStatus(t, request(s, "POST", "/api/admin/test-mode", map[string]any{"tier": 0}, admin), 200)
+	mustStatus(t, appendCampaignEmails(t, s, admin, r.ID, []string{"append-new@example.org"}), 403)
+	mustStatus(t, request(s, "DELETE", "/api/admin/test-mode", nil, admin), 200)
+	batch := []string{" Append-New@Example.org ", "append-new@example.org", "append-awarded@example.org", "append-existing@example.org"}
+	assertCampaignAppendCounts(t, appendCampaignEmails(t, s, admin, r.ID, batch), 2, 1, 3)
+	assertCampaignAppendCounts(t, appendCampaignEmails(t, s, admin, r.ID, batch), 0, 3, 3)
+	var awardCount, ledgerCount, balance, tier, uses, days, credits int
+	var rank, until, note string
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM invite_campaign_awards").Scan(&awardCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM ledger WHERE kind='invite_campaign'").Scan(&ledgerCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow("SELECT credits,paid_tier,paid_until FROM users WHERE id=?", existingID).Scan(&balance, &tier, &until); err != nil {
+		t.Fatal(err)
+	}
+	if awardCount != 1 || ledgerCount != 1 || balance != 12 || tier != 0 || until != "" {
+		t.Fatal("append issued a retroactive award", awardCount, ledgerCount, balance, tier, until)
+	}
+	if err := s.db.QueryRow("SELECT credits,paid_tier,paid_until FROM users WHERE id=?", awarded.ID).Scan(&balance, &tier, &until); err != nil {
+		t.Fatal(err)
+	}
+	if balance != awarded.Credits || tier != awarded.PaidTier || until != awarded.PaidUntil {
+		t.Fatal("append changed prior award")
+	}
+	if err := s.db.QueryRow("SELECT i.uses,c.reward_rank,c.reward_days,c.reward_credits FROM invites i JOIN invite_campaigns c ON c.invite_id=i.id WHERE i.id=?", r.ID).Scan(&uses, &rank, &days, &credits); err != nil {
+		t.Fatal(err)
+	}
+	if uses != 1 || rank != "bronze" || days != 30 || credits != 1000 {
+		t.Fatal("append changed campaign terms", uses, rank, days, credits)
+	}
+	if err := s.db.QueryRow("SELECT note FROM audit WHERE action='append_invite_campaign_emails' ORDER BY id LIMIT 1").Scan(&note); err != nil || strings.Contains(note, "@") || strings.Contains(note, r.Code) {
+		t.Fatal("audit includes private list/code", err, note)
+	}
+	// Added existing users still get no reward on login; new users receive it only after OTP registration.
+	logged, _ := campaignRegister(t, s, "append-existing@example.org", "", r.Code)
+	if logged.ID != existingID || logged.Credits != 12 || logged.TierIndex != 0 {
+		t.Fatal("existing user received appended reward")
+	}
+	newUser, _ := campaignRegister(t, s, "append-new@example.org", "新活动成员", r.Code)
+	if newUser.Credits != 1000 || newUser.PaidTier != 1 {
+		t.Fatal("new appended member did not receive registration-only award")
+	}
+}
+
+func TestInviteCampaignAppendRequiresUsableCampaign(t *testing.T) {
+	s := testServer(t)
+	_, admin := account(t, s, founderEmail, "admin", 0)
+	r := createCampaignFixture(t, s, admin, []string{"append-base@example.org"})
+	validUntil := stamp(s.now().Add(time.Hour))
+	for _, state := range []struct {
+		active, permanent, uses, maxUses int
+		expires                          string
+	}{
+		{0, 1, 0, 0, ""}, {1, 0, 0, 100, stamp(s.now().Add(-time.Second))}, {1, 0, 1, 1, validUntil},
+	} {
+		if _, err := s.db.Exec("UPDATE invites SET active=?,permanent=?,uses=?,max_uses=?,expires_at=? WHERE id=?", state.active, state.permanent, state.uses, state.maxUses, state.expires, r.ID); err != nil {
+			t.Fatal(err)
+		}
+		mustStatus(t, appendCampaignEmails(t, s, admin, r.ID, []string{"append-new@example.org"}), 409)
+	}
+	// Fixed invitations bypass only expiry/use caps, never revocation.
+	if _, err := s.db.Exec("UPDATE invites SET active=1,permanent=1,uses=500,max_uses=1,expires_at=? WHERE id=?", stamp(s.now().Add(-200*24*time.Hour)), r.ID); err != nil {
+		t.Fatal(err)
+	}
+	assertCampaignAppendCounts(t, appendCampaignEmails(t, s, admin, r.ID, []string{"append-new@example.org"}), 1, 0, 2)
+	w := request(s, "POST", "/api/admin/invites", map[string]any{"permanent": true}, admin)
+	mustStatus(t, w, 201)
+	var ordinary campaignReceipt
+	if err := json.Unmarshal(w.Body.Bytes(), &ordinary); err != nil {
+		t.Fatal(err)
+	}
+	mustStatus(t, appendCampaignEmails(t, s, admin, ordinary.ID, []string{"append-new@example.org"}), 404)
+	mustStatus(t, appendCampaignEmails(t, s, admin, 99999, []string{"append-new@example.org"}), 404)
+	var count int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM invite_campaign_members WHERE invite_id=?", r.ID).Scan(&count); err != nil || count != 2 {
+		t.Fatal(err, count)
+	}
+}
+
+func TestInviteCampaignAppendValidationThousandLimitAndStrictJSON(t *testing.T) {
+	s := testServer(t)
+	_, admin := account(t, s, founderEmail, "admin", 0)
+	emails := make([]string, 1000)
+	for i := range emails {
+		emails[i] = fmt.Sprintf("append%04d@%s.example.org", i, strings.Repeat("d", 60))
+	}
+	r := createCampaignFixture(t, s, admin, emails[:1])
+	for _, input := range [][]string{nil, {}, {"invalid-email"}, make([]string, 1001)} {
+		mustStatus(t, appendCampaignEmails(t, s, admin, r.ID, input), 400)
+	}
+	assertCampaignAppendCounts(t, appendCampaignEmails(t, s, admin, r.ID, emails), 999, 1, 1000)
+	mustStatus(t, appendCampaignEmails(t, s, admin, r.ID, []string{emails[0], "over-limit@example.org"}), 409)
+	assertCampaignAppendCounts(t, appendCampaignEmails(t, s, admin, r.ID, emails[:1]), 0, 1, 1000)
+	for _, raw := range []string{
+		`{"emails":["extra@example.org"],"reward_credits":1}`,
+		`{"emails":["extra@example.org"]} {"emails":[]}`,
+		strings.Repeat(" ", inviteCreateBodyLimit) + `{}`,
+	} {
+		req := httptest.NewRequest("POST", fmt.Sprintf("http://example.com/api/admin/invites/%d/campaign/emails", r.ID), strings.NewReader(raw))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Origin", "http://example.com")
+		req.Header.Set("Cookie", "infogap_session="+admin)
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, req)
+		mustStatus(t, w, 400)
+	}
+	var count int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM invite_campaign_members WHERE invite_id=?", r.ID).Scan(&count); err != nil || count != 1000 {
+		t.Fatal("invalid request changed membership", count, err)
+	}
+}
+
+func TestInviteCampaignAppendAtomicRollbackAndConcurrentDuplicates(t *testing.T) {
+	for _, table := range []string{"invite_campaign_members", "audit"} {
+		t.Run(table, func(t *testing.T) {
+			s := testServer(t)
+			_, admin := account(t, s, founderEmail, "admin", 0)
+			r := createCampaignFixture(t, s, admin, []string{"old-member@example.org"})
+			when := ""
+			if table == "invite_campaign_members" {
+				when = " WHEN NEW.email='new-b@example.org'"
+			}
+			if _, err := s.db.Exec("CREATE TRIGGER reject_append BEFORE INSERT ON " + table + when + " BEGIN SELECT RAISE(ABORT,'test append failure'); END"); err != nil {
+				t.Fatal(err)
+			}
+			batch := []string{"new-a@example.org", "new-b@example.org"}
+			mustStatus(t, appendCampaignEmails(t, s, admin, r.ID, batch), 500)
+			var members, audits int
+			if err := s.db.QueryRow("SELECT COUNT(*) FROM invite_campaign_members WHERE invite_id=?", r.ID).Scan(&members); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.db.QueryRow("SELECT COUNT(*) FROM audit WHERE action='append_invite_campaign_emails'").Scan(&audits); err != nil {
+				t.Fatal(err)
+			}
+			if members != 1 || audits != 0 {
+				t.Fatal("partial append survived failure", members, audits)
+			}
+			if _, err := s.db.Exec("DROP TRIGGER reject_append"); err != nil {
+				t.Fatal(err)
+			}
+			var wg sync.WaitGroup
+			responses := make(chan *httptest.ResponseRecorder, 6)
+			for range 6 {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					responses <- request(s, "POST", fmt.Sprintf("/api/admin/invites/%d/campaign/emails", r.ID), map[string]any{"emails": batch}, admin)
+				}()
+			}
+			wg.Wait()
+			close(responses)
+			added := 0
+			for w := range responses {
+				mustStatus(t, w, 200)
+				var counts map[string]int
+				if err := json.Unmarshal(w.Body.Bytes(), &counts); err != nil {
+					t.Fatal(err)
+				}
+				added += counts["added"]
+				if counts["total"] != 3 || counts["added"]+counts["existing"] != 2 {
+					t.Fatal(counts)
+				}
+			}
+			if added != 2 {
+				t.Fatal("concurrent batch duplicated members", added)
+			}
+		})
+	}
+}
+
 func TestPermanentInviteMigrationPreservesOrdinaryRules(t *testing.T) {
 	s := testServer(t)
 	_, admin := account(t, s, founderEmail, "admin", 0)

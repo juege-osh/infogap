@@ -1,12 +1,12 @@
 # InfoGap v1 contract
 Go 1.26 + modernc SQLite, static buildless web served by Go. Local listen 127.0.0.1:18869. PROD domain https://infogap.osh.lol. JSON all APIs. Times RFC3339 UTC. Errors {error:string}. Cookie session with HttpOnly SameSite Lax secure on production; origin check mutations. Frontend never receives locked body or original source identity. No remote fonts/CDN/images. Science text source-first.
 
-GET /api/bootstrap => {user:null|User,stats:{published,sources,members,pending},categories:[string],topic_codes:{主题名:代码},tiers:[{name,min_points,color}],rules:{welcome:10,contribution:100,unlock_costs:{ordinary:1,featured:2,rare:4,exclusive:8},daily_reset_timezone:"Asia/Shanghai"},mail_ready:bool}
+GET /api/bootstrap => {user:null|User,stats:{published,sources,members,pending},categories:[string],topic_codes:{主题名:代码},tiers:[{name,min_points,color}],rules:{welcome:0,contribution:100,contribution_credits:{ordinary:100,featured:200,rare:400,exclusive:800},contribution_points:{ordinary:20,featured:80,rare:200,exclusive:500},rank_gift_valid_days:30,unlock_costs:{ordinary:1,featured:2,rare:4,exclusive:8},daily_reset_timezone:"Asia/Shanghai"},mail_ready:bool}
 User {id,email,username,role:'admin'|'reviewer'|'member',points,tier,tier_index,credits,rank_credits,rank_credits_expires_at,available_credits,daily_allowance,daily_remaining,contributions,featured_contributions,rare_contributions}
 GET /api/gaps?q=&category=&level=&sort=latest|value&view=all|saved|unlocked|mine&page=1 => {items:[Gap],total,page}
 Gap {id,code,title,summary,category,level:'ordinary'|'featured'|'rare'|'exclusive',evidence:'peer_reviewed'|'preprint'|'official'|'repository'|'unverified',source_name,source_url,published_at,created_at,updated_at,status:'pending'|'published'|'rejected'|'disputed'|'expired',tags:[string],author,unlocked:bool,saved:bool,body?:string,review_note?:string}
 GET /api/gaps/{id} => Gap (body and original public source require unlocked/owner/staff; visible preview metadata available to guest; internal source remains staff-only)
-POST /api/gaps/{id}/unlock {} => {gap:Gap,user:User}; auth required; admin/reviewer free; all content uses daily allowance, earliest-expiring rank gifts, then permanent credits; rare requires silver index>=2; exclusive requires diamond index>=6. Costs ordinary1/featured2/rare4/exclusive8 and permanent unlock. welcome10 credits. contribution approved credits ordinary100/featured200/rare400/exclusive800, once. Quality points ordinary20 featured80 rare200 exclusive500; tier minima [0,100,300,700,1400,2500,4000,6500,10000,15000]. No caps reward. No self review reward bypass. Any rank may submit any proposed level.
+POST /api/gaps/{id}/unlock {} => {gap:Gap,user:User}; auth required; admin/reviewer free; all content uses daily allowance, earliest-expiring rank gifts, then permanent credits; rare requires silver index>=2; exclusive requires diamond index>=6. Costs ordinary1/featured2/rare4/exclusive8 and permanent unlock. New ordinary registrations start with 0 permanent credits; eligible invite campaigns grant their explicit reward once. contribution approved credits ordinary100/featured200/rare400/exclusive800, once. Quality points ordinary20 featured80 rare200 exclusive500; tier minima [0,100,300,700,1400,2500,4000,6500,10000,15000]. No caps reward. No self review reward bypass. Any rank may submit any proposed level.
 POST /api/gaps/{id}/save {} => {saved:bool}
 POST /api/gaps/{id}/report {reason} => {ok:true}
 POST /api/auth/code {email,invite?} => {ok:true}; existing email or verified admin allow no invite. Invite required new other. No code in responses/logs; SMTP config env SMTP_HOST/PORT/USER/PASSWORD/FROM/SECURITY.
@@ -74,7 +74,7 @@ GET /api/admin/overview additionally returns summary_jobs:{pending,completed,fai
 | 职业成长 | ZY | 住房居住 | ZF |
 | 出行旅行 | LX | 商业创业 | CY |
 
-数字直接使用 `gaps.id` 的全站 `AUTOINCREMENT` 序号，不创建按等级或主题分组的计数器。序号可跳号，不等于公开内容数量。重新审核、修改等级或主题时，只更新显示前缀，ID不变。列表、详情、后台、投稿响应和成员投稿记录返回同一规则生成的当前编号；详情、解锁等既有路径仍接收数字 `{id}`。
+数字直接使用 `gaps.id` 的全站 `AUTOINCREMENT` 序号，不创建按等级或主题分组的计数器。序号可跳号，不等于公开内容数量。待审稿首次定级按审核结果生成编号。自1.0.14起，已发布稿通过修订更新时固定修订前的编号，改变等级或主题也不会改变已有编号；实际阅读门槛、成本和分类仍按当前字段执行。列表、详情、后台、投稿响应和成员投稿记录返回一致编号；详情、解锁等既有路径仍接收数字 `{id}`。
 
 `GET /api/gaps?q=JX-AI-116` 识别完整新编号，兼容旧格式 `PT01`、`JX116`、`XY08`、`DJ205`，忽略字母大小写及首尾空白。新编号的等级和主题代码必须属于已定义映射，数字至少两位。`PT-01` 等两段格式和纯数字 `116` 不作为编号识别，继续按普通关键词搜索。
 
@@ -113,3 +113,45 @@ API 错误包含 `request_id`，并通过 `X-Request-ID` 返回。服务器错�
 未解锁的列表、详情、收藏和搜索响应不提供原始来源：`source_name/source_url` 为空，正文不返回，预览中的原来源名称、链接和域名同步清理。证据类型仍可显示，例如预印本、已发表论文。搜索、订阅标签及旅行筛选使用相同清理规则，不能通过条件推断被锁定来源。
 
 已解锁者及投稿者本人可看公开来源，管理员和审核员可直接核查。`source_visibility=internal` 的私人社区来源仍仅审核人员可见，普通成员即使已解锁也不会获得其原始出处。来源字段保留在数据库，响应清理不改原始记录。
+
+
+## 1.0.14 我发布的、修订审核与人工扣分
+
+`GET /api/me/submissions?status=all|pending|published|rejected|disputed|expired&q=&category=&page=1` 返回 `{items:[SubmissionItem],total,page}`，每页20条，只包含本人投稿。支持标题/摘要关键词、完整编号和主题筛选。本人读取原稿全文与公开出处不扣积分，也不创建解锁记录；私人社区出处继续隐藏。其他用户即使已解锁，也不能通过作者编辑接口查看原稿或待审修订。
+
+`GET /api/submissions/{id}/edit` 返回 `SubmissionItem`，限作者本人或站长。其他用户返回404。结构如下：
+
+```text
+SubmissionItem {gap:Gap,edit_token,revision:null|Revision,editable:bool}
+Revision {id,gap_id,status:'pending'|'rejected'|'approved'|'superseded',review_note,created_at,updated_at,edit_token,draft:Gap,original:Gap}
+```
+
+`gap` 始终是当前原稿；存在修订时，编辑表单使用 `revision.draft`。`revision` 只包含当前待审或退回稿。证伪和失效记录只读，`editable=false`。内部来源在当前原稿或历史修订任一版本被标为私密后，成员响应均隐藏对应出处；站长与审核员保留核查能力。
+
+`POST /api/submissions/{id}/edit` 接收 `{title,summary,body,category,level,evidence,tags,edit_token}`，返回更新后的 `SubmissionItem`。提交 `item.edit_token`，不要提交 `revision.edit_token`。标题8–360字、摘要15–300字、正文存稿80–15000字、单个主题、标签最多10个，每个标签最多24字；`level` 只是作者建议。原始链接、来源名、来源可见性固定，传入这些额外字段会被拒绝。测试模式不能修改正式稿件。
+
+- 待审或退回稿：原稿更新为待审，清除上一轮退回原因，并更新审核快照。
+- 已发布稿：另存待审修订，公开原稿、首次发布时间、编号和已解锁权限全部保留。再次提交会将之前待审或退回修订标为 `superseded`。
+- 并发编辑或页面过期：返回409，需重新读取后再提交。编辑与审计写入同一事务，保存失败不留下半份稿件。
+
+旧的 `POST /api/admin/gaps/{id}` 继续编辑未发布稿。对已发布稿返回409，站长应改走上述修订接口。审核员可以核验修订，但不能通过作者接口编辑他人的已发布稿件。
+
+`GET /api/admin/revisions?status=pending|rejected|approved|superseded` 返回 `{items:[Revision]}`，默认待审，最多200条。`GET /api/admin/overview` 另返回 `revisions` 待审列表。两者仅审核员或站长可读。
+
+`POST /api/admin/revisions/{id}/review` 接收 `{action:'approve'|'reject',level,note,edit_token}`，使用该修订的 `revision.edit_token`，返回 `{ok:true,gap_id,status}`。作者不能审核自己的修订。退回原因至少3字，原因最多2000字；批准需指定最终等级，稀有/独家需至少10字核验依据。发布修订正文必须为300–1000字，中文内容完整，不能残留内部社区标识。若原稿状态或内容已经变化，返回409，不覆盖新版本。
+
+修订批准在同一条内容上替换文字、主题、标签和最终等级；原来源、首次发布时间、解锁记录与首次贡献奖励事实不变。首次批准修订时将旧编号写入 `gaps.stable_code`，以后继续沿用；`edit_version` 作为单调增加的内部编辑版本参与快照，防止同一秒重投相同文字误用旧审核结果。修订不二次发奖，作者自评也不能决定最终贡献奖励。待审修订不会出现在公开列表、搜索、收藏或普通详情中。
+
+`POST /api/admin/users/{id}/credits/deduct` 仅站长可用，接收 `{amount,reason,idempotency_key}`：
+
+- `amount` 为正整数，只扣永久积分，余额不足返回409，余额不会变负数；每日赠分、段位赠分、成长点和贡献资格不变。
+- `reason` 去首尾空白后3–500字，原字符串也不得超过500字；保存原文作为账本与审计依据。
+- `idempotency_key` 为8–100字，不含控制字符或首尾空白。重试同一请求必须沿用同一key和完全相同的用户、金额、原因；参数不同返回409。
+- 站长、测试账号不能作为扣分目标，站长测试模式也不能操作。普通成员和审核员（包括已停用账户）可纠正永久余额。停用账号仍使用原 `POST /api/admin/users/{id}` 的 `disabled` 字段；退稿不会自动扣积分。
+
+成功与一致重试都返回200：`{receipt:{idempotency_key,actor_id,target_user_id,amount,reason,before_credits,after_credits,ledger_id,created_at},user:User,replayed:bool}`。`receipt` 保留当次快照，`user` 返回最新余额。扣减、`ledger.kind=admin_deduct` 负数流水、幂等回执和审计同一事务提交。网络结果不确定时用原key重试，不重复扣分。
+
+
+`POST /api/admin/invites/{id}/campaign/emails` 接收 `{emails:[...]}`，向既有活动追加奖励邮箱，返回 `{added,existing,total}`，不返回名单或邀请码。仅真实站长可用，测试模式禁止操作。活动必须仍有效；撤销、过期或次数用尽返回409，不存在或普通非活动邀请码返回404。固定邀请码继续沿用原码，不改变有效期、使用次数规则或奖励。
+
+邮箱沿用创建活动时的格式校验，去首尾空白、转小写并去重。单次输入最多1000条，活动累计最多1000个不同邮箱，超限整批拒绝。`existing` 按本批规范化后已在活动中的不同邮箱数计算，重复提交返回 `added:0`。只追加，不删除原成员、不更改已发奖励；新加邮箱仍须在今后的首次注册时满足活动条件，已有账号不会补发。追加名单和计数审计同事务提交，失败完整回滚。

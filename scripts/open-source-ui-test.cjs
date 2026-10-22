@@ -90,7 +90,7 @@ function groups(html) {
   run('renderSubmission()');
   assert(element('#main').innerHTML.includes('<option>开源技术</option>'));
   assert(!element('#main').innerHTML.includes('<option>开源工具</option>'));
-  run('api=async()=>gap');
+  run('api=async request=>request.includes("/submissions/")?{gap,revision:null,editable:true,edit_token:"category-test"}:gap');
   await run("renderEdit('205',state.routeID)");
   assert(element('#main').innerHTML.includes('<option selected>开源技术</option>'));
   run('api=async()=>({items:[],enabled:true,limit:40})');

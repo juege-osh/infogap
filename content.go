@@ -39,18 +39,23 @@ type Gap struct {
 	Saved            bool          `json:"saved"`
 	ReviewNote       string        `json:"review_note,omitempty"`
 	Rewarded         int           `json:"-"`
+	StoredCode       string        `json:"-"`
+	EditVersion      int           `json:"-"`
 }
 
-const gapSelect = `SELECT g.id,g.title,g.summary,g.body,g.category,g.level,g.evidence,g.source_name,g.source_url,g.source_visibility,g.published_at,g.released_at,g.created_at,g.updated_at,g.status,g.tags,g.author_id,g.review_note,g.rewarded,COALESCE(u.username,'InfoGap 编辑部'),EXISTS(SELECT 1 FROM unlocks un WHERE un.gap_id=g.id AND un.user_id=?),EXISTS(SELECT 1 FROM saves sv WHERE sv.gap_id=g.id AND sv.user_id=?) FROM gaps g LEFT JOIN users u ON g.author_id=u.id `
+const gapSelect = `SELECT g.id,g.title,g.summary,g.body,g.category,g.level,g.evidence,g.source_name,g.source_url,g.source_visibility,g.published_at,g.released_at,g.created_at,g.updated_at,g.status,g.tags,g.author_id,g.review_note,g.rewarded,g.edit_version,g.stable_code,COALESCE(u.username,'InfoGap 编辑部'),EXISTS(SELECT 1 FROM unlocks un WHERE un.gap_id=g.id AND un.user_id=?),EXISTS(SELECT 1 FROM saves sv WHERE sv.gap_id=g.id AND sv.user_id=?) FROM gaps g LEFT JOIN users u ON g.author_id=u.id `
 
 func gapScan(r scanner, u *User) (*Gap, error) {
 	g := &Gap{}
 	var tags string
-	err := r.Scan(&g.ID, &g.Title, &g.Summary, &g.Body, &g.Category, &g.Level, &g.Evidence, &g.SourceName, &g.SourceURL, &g.SourceVisibility, &g.PublishedAt, &g.ReleasedAt, &g.CreatedAt, &g.UpdatedAt, &g.Status, &tags, &g.AuthorID, &g.ReviewNote, &g.Rewarded, &g.Author, &g.Unlocked, &g.Saved)
+	err := r.Scan(&g.ID, &g.Title, &g.Summary, &g.Body, &g.Category, &g.Level, &g.Evidence, &g.SourceName, &g.SourceURL, &g.SourceVisibility, &g.PublishedAt, &g.ReleasedAt, &g.CreatedAt, &g.UpdatedAt, &g.Status, &tags, &g.AuthorID, &g.ReviewNote, &g.Rewarded, &g.EditVersion, &g.StoredCode, &g.Author, &g.Unlocked, &g.Saved)
 	if err != nil {
 		return nil, err
 	}
-	g.Code = gapCode(g.ID, g.Level, g.Category)
+	g.Code = g.StoredCode
+	if g.Code == "" {
+		g.Code = gapCode(g.ID, g.Level, g.Category)
+	}
 	g.Tags = []string{}
 	g.UnlockCost = unlockCosts[g.Level]
 	_ = json.Unmarshal([]byte(tags), &g.Tags)

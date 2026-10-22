@@ -294,23 +294,33 @@ func TestStaffEditQueuesAndKeepsPriorUnlocks(t *testing.T) {
 	g := gap(t, s, "featured", "published", nil)
 	path := fmt.Sprintf("/api/gaps/%d", g)
 	mustStatus(t, request(s, "POST", path+"/unlock", nil, member), 200)
-	input := map[string]any{"title": "经重新核对后的科研进展标题", "summary": "核对原始资料后重新整理的中文摘要，说明这项研究的证据范围。", "body": strings.Repeat("这是经过编辑核对的完整正文与证据限制。", 10), "category": "物理", "evidence": "peer_reviewed", "tags": []string{"量子"}}
+	item := editingItem(t, s, g, admin)
+	input := editInput(item, "经重新核对后的科研进展标题")
+	legacyInput := map[string]any{"title": input.Title, "summary": input.Summary, "body": input.Body, "category": input.Category, "evidence": input.Evidence, "tags": input.Tags}
 	editPath := fmt.Sprintf("/api/admin/gaps/%d", g)
-	mustStatus(t, request(s, "POST", editPath, input, member), 403)
-	mustStatus(t, request(s, "POST", editPath, input, admin), 200)
-	mustStatus(t, request(s, "GET", path, nil, ""), 404)
+	mustStatus(t, request(s, "POST", editPath, legacyInput, member), 403)
+	mustStatus(t, request(s, "POST", editPath, legacyInput, admin), 409)
+	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/submissions/%d/edit", g), input, admin), 200)
 	w := request(s, "GET", path, nil, member)
 	mustStatus(t, w, 200)
-	if !strings.Contains(w.Body.String(), "这是经过编辑") {
+	if !strings.Contains(w.Body.String(), "PROTECTED_SECRET_FULLTEXT") || strings.Contains(w.Body.String(), input.Title) {
+		t.Fatal("old unlocked version was replaced", w.Body.String())
+	}
+	item = editingItem(t, s, g, admin)
+	rev := item.Revision
+	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/admin/revisions/%d/review", rev.ID), map[string]string{"action": "approve", "level": "featured", "edit_token": rev.EditToken}, admin), 200)
+	w = request(s, "GET", path, nil, member)
+	mustStatus(t, w, 200)
+	if !strings.Contains(w.Body.String(), input.Body) {
 		t.Fatal("prior unlock lost")
 	}
 	w = request(s, "GET", "/api/gaps?view=unlocked", nil, member)
-	if !strings.Contains(w.Body.String(), "这是经过编辑") {
+	if !strings.Contains(w.Body.String(), input.Body) {
 		t.Fatal("history omitted")
 	}
 	var count int
-	_ = s.db.QueryRow("SELECT COUNT(*) FROM audit WHERE action='edit_gap'").Scan(&count)
+	_ = s.db.QueryRow("SELECT COUNT(*) FROM audit WHERE action='submit_revision'").Scan(&count)
 	if count != 1 {
-		t.Fatal("missing edit audit")
+		t.Fatal("missing revision audit")
 	}
 }

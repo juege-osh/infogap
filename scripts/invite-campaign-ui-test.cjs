@@ -131,6 +131,7 @@ function clickTarget(selector, item) { return { closest: target => target === se
   assert.equal(panel.innerHTML, '', 'closing must remove the private allowlist from the panel');
   assert.equal(campaignButton.attributes['aria-expanded'], 'false');
 
+  assert(run('campaignAppendForm(9)').includes('补充奖励邮箱'));run("state.user.test_mode=true");assert.equal(run('campaignAppendForm(9)'),'');run("state.user.test_mode=false");
   context.malicious = { ...campaign, emails: [{ email: '<img src=x onerror=alert(1)>', awarded: false }] };
   assert(!run('inviteCampaignDetails(malicious)').includes('<img'));
   assert(run('inviteCampaignDetails(malicious)').includes('&lt;img'));

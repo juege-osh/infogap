@@ -138,11 +138,13 @@ func TestApprovalReleaseTimePreservedAndUnlockSurvivesDowngrade(t *testing.T) {
 		t.Fatal("previous unlock lost after downgrade")
 	}
 	mustStatus(t, request(s, "GET", fmt.Sprintf("/api/gaps/%d", g), nil, ""), 404)
-	input := map[string]any{"title": "经重新核对后的科研进展标题", "summary": "核对原始资料后重新整理的中文摘要，说明这项研究的证据范围。", "body": strings.Repeat("这是经过编辑核对的完整正文与证据限制。", 10), "category": "物理", "evidence": "peer_reviewed", "tags": []string{"量子"}}
-	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/admin/gaps/%d", g), input, admin), 200)
+	item := editingItem(t, s, g, admin)
+	input := editInput(item, "经重新核对后的科研进展标题")
+	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/submissions/%d/edit", g), input, admin), 200)
 	base := s.now()
 	s.now = func() time.Time { return base.Add(30 * time.Minute) }
-	mustStatus(t, request(s, "POST", path, map[string]string{"action": "approve", "level": "featured", "note": "复核更新的实验条件和结果"}, admin), 200)
+	rev := editingItem(t, s, g, admin).Revision
+	mustStatus(t, request(s, "POST", fmt.Sprintf("/api/admin/revisions/%d/review", rev.ID), map[string]string{"action": "approve", "level": "featured", "note": "复核更新的实验条件和结果", "edit_token": rev.EditToken}, admin), 200)
 	_ = s.db.QueryRow("SELECT released_at FROM gaps WHERE id=?", g).Scan(&release)
 	if release != approvedAt {
 		t.Fatal("re-review reset first release")
