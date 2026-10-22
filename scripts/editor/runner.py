@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Resumable benchmark on public source candidates. No production writes."""
-import sys,concurrent.futures,datetime,decimal,hashlib,json,os,pathlib,selectors,signal,subprocess,tempfile,time
+import sys,collections,concurrent.futures,datetime,decimal,hashlib,json,os,pathlib,re,selectors,signal,subprocess,tempfile,time
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 OUT=pathlib.Path(os.environ['INFOGAP_RUN_DIR']).resolve();OUT.mkdir(parents=True,exist_ok=True)
 CLI='/Users/rengang/.local/bin/codex';MODEL='gpt-6.1-sol';ANCHOR=int(os.environ.get('INFOGAP_DAY_ANCHOR','0'))
@@ -17,7 +17,7 @@ def safeenv(home):
  return env
 class Quota:
  def __init__(self,home):
-  self.p=subprocess.Popen([CLI,'app-server','--listen','stdio://'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,env=safeenv(home));self.n=0
+  self.p=subprocess.Popen([CLI,'app-server','--listen','stdio://'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,env=safeenv(home));self.n=0;self._cache=None;self._cache_at=0
   self.rpc('initialize',{'clientInfo':{'name':'infogap_quota_benchmark','version':'1.0.0'}})
  def rpc(self,method,params):
   self.n+=1;ident=self.n;self.p.stdin.write(json.dumps({'id':ident,'method':method,'params':params})+'\n');self.p.stdin.flush();sel=selectors.DefaultSelector();sel.register(self.p.stdout,selectors.EVENT_READ);deadline=time.monotonic()+45
@@ -28,18 +28,44 @@ class Quota:
     if not line:raise RuntimeError('quota monitor closed')
     d=json.loads(line)
     if d.get('id')==ident:
-     if 'error' in d:raise RuntimeError('quota read refused')
+     if 'error' in d:
+      error=d['error'];message=__import__('re').sub(r'[A-Za-z0-9_-]{32,}','[redacted]',str(error.get('message','')))[:220];append('quota-errors.jsonl',{'at':stamp(),'code':error.get('code'),'message':message});raise RuntimeError('quota read refused code '+str(error.get('code')))
      return d['result']
    raise RuntimeError('quota read timeout')
   finally:sel.close()
- def read(self):
-  d=self.rpc('account/rateLimits/read',{});r=d.get('rateLimitsByLimitId',{}).get('codex') or d['rateLimits'];w=[r.get('primary'),r.get('secondary')];weekly=next((x for x in w if x and x.get('windowDurationMins')==10080),None)
+ def read(self,max_age=0):
+  ttl=min(2,max(0,max_age))
+  if ttl and self._cache is not None and time.monotonic()-self._cache_at<ttl:return dict(self._cache)
+  self._cache=None
+  try:d=self.rpc('account/rateLimits/read',{})
+  except RuntimeError:
+   time.sleep(2);d=self.rpc('account/rateLimits/read',{})
+  r=d.get('rateLimitsByLimitId',{}).get('codex') or d['rateLimits'];w=[r.get('primary'),r.get('secondary')];weekly=next((x for x in w if x and x.get('windowDurationMins')==10080),None)
   if not weekly:raise RuntimeError('weekly quota not available')
-  result={'at':stamp(),'used_percent':weekly['usedPercent'],'resets_at':weekly['resetsAt'],'credits':(r.get('credits') or {}).get('balance'),'quota_reached':bool(r.get('rateLimitReachedType')),'allowed':d.get('ordinaryUsageAllowed')};append('quota.jsonl',result);return result
+  result={'at':stamp(),'used_percent':weekly['usedPercent'],'resets_at':weekly['resetsAt'],'credits':(r.get('credits') or {}).get('balance'),'quota_reached':bool(r.get('rateLimitReachedType')),'allowed':d.get('ordinaryUsageAllowed')};append('quota.jsonl',result);self._cache=dict(result);self._cache_at=time.monotonic();return result
  def close(self):
   self.p.terminate()
   try:self.p.wait(timeout=5)
   except subprocess.TimeoutExpired:self.p.kill();self.p.wait()
+
+def validate_concurrency(workers,batch_size):
+ if not 1<=workers<=100 or not 1<=batch_size<=10 or (workers>8 and batch_size!=1):raise ValueError('workers1..100; batch1..10; workers>8 requires batch1')
+ return workers,batch_size
+
+def worker_cap(workers,elapsed):
+ if workers<=8:return workers
+ return min(workers,[20,40,80,100][min(3,int(max(0,elapsed)//15))])
+
+def available_memory_bytes():
+ if sys.platform!='darwin':return None
+ try:
+  raw=subprocess.check_output(['vm_stat'],text=True,timeout=2);size=int(re.search(r'page size of (\d+) bytes',raw).group(1));values=dict((k,int(v)) for k,v in re.findall(r'^([^:]+):\s+(\d+)\.',raw,re.M))
+  return size*sum(values.get(k,0) for k in ('Pages free','Pages inactive','Pages speculative'))
+ except (OSError,ValueError,AttributeError,subprocess.SubprocessError):return None
+
+def throughput(events,started,now=None):
+ now=time.monotonic() if now is None else now
+ return {'usable_completed_last_60s':sum(e[1] for e in events if e[0]>=now-60),'throughput_window_seconds':round(min(60,max(0,now-started)),2),'elapsed_seconds':round(max(0,now-started),2)}
 
 def run_batch(batch,home,work,number):
  schema=work/'schema.json';schema.write_text(json.dumps(SCHEMA));payload=[dict({k:x[k] for k in ('id','title','text','topic','evidence')},source_date=x.get('source_date',''),archive_context=x.get('archive_context',{})) for x in batch]
@@ -87,7 +113,9 @@ def main():
  if (OUT/'results.jsonl').exists():
   for line in (OUT/'results.jsonl').read_text().splitlines():
    x=json.loads(line);done[x['id']]=x
- pending=[x for x in SAMPLES if x['id'] not in done];attempts=0;max_done=int(os.environ.get('INFOGAP_MAX_DONE','1000'));batch_size=int(os.environ.get('INFOGAP_BATCH_SIZE','10'));workers=int(os.environ.get('INFOGAP_WORKERS','2'))
+ pending=[x for x in SAMPLES if x['id'] not in done];attempts=0;max_done=int(os.environ.get('INFOGAP_MAX_DONE','1000'));batch_size=int(os.environ.get('INFOGAP_BATCH_SIZE','10'));workers=int(os.environ.get('INFOGAP_WORKERS','4'));validate_concurrency(workers,batch_size);started=time.monotonic();initial_usable=sum(x['usable'] for x in done.values());completion_events=collections.deque();requested_completed=0;new_usable=0;peak_active=0;peak_articles=0;memory_at=0;memory_available=None
+ if workers>8 and batch_size!=1:raise ValueError('high concurrency requires single-item batches')
+ recent=[]
  number=len(list(OUT.glob('batch-*-events.jsonl')))+1
  with tempfile.TemporaryDirectory(prefix='infogap-official-1000-') as tmp:
   base=pathlib.Path(tmp);auth=(pathlib.Path.home()/'.codex/auth.json').read_bytes();homes=[]
@@ -97,12 +125,17 @@ def main():
   try:
    initial=monitor.read();reset=initial['resets_at'];credit=initial['credits'];ledger=ROOT/'state/official-editor'/(datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).date().isoformat()+'.json');guard=BudgetGuard.from_record(json.loads(ledger.read_text())) if ledger.exists() else BudgetGuard(dict(initial,used_percent=ANCHOR));stop_at=ANCHOR+guard.max_points-guard.reserve_points
    if initial['used_percent']<ANCHOR:raise RuntimeError('quota baseline or reset changed')
-   print(json.dumps({'start':initial,'already_completed':len(done),'pending':len(pending),'target':max_done,'stop_at':stop_at}),flush=True)
+   print(json.dumps({'start':initial,'already_completed':len(done),'pending':len(pending),'target':max_done,'stop_at':stop_at,'requested_workers':workers,'batch_size':batch_size,'max_inflight_articles':min(100,workers*batch_size),'ramp_seconds':[0,15,30,45] if workers>8 else []}),flush=True)
    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
     free=list(range(workers));stop=False
     while (pending and sum(x['usable'] for x in done.values())<max_done and not stop) or active:
      while pending and free and sum(x['usable'] for x in done.values())+sum(len(v[1]) for v in active.values())<max_done and not stop:
-      try:q=monitor.read()
+      cap=worker_cap(workers,time.monotonic()-started)
+      if len(active)>=cap or sum(len(v[1]) for v in active.values())>=100:break
+      if workers>8 and time.monotonic()-memory_at>=2:
+       memory_available=available_memory_bytes();memory_at=time.monotonic()
+       if memory_available is not None and memory_available<3*1024**3:reason='host_memory_pressure';stop=True;break
+      try:q=monitor.read(max_age=2 if workers>8 else 0)
       except Exception:reason='quota_unavailable';stop=True;break
       if q['resets_at']!=reset and abs(q['resets_at']-reset)>5:reason='quota_reset';stop=True;break
       may_dispatch,guard_reason=guard.check(q)
@@ -110,23 +143,29 @@ def main():
       if q['used_percent']>=calibration_stop:reason='calibration_tick_reached';stop=True;break
       if not may_dispatch:reason=guard_reason;stop=True;break
       if credit is not None and q['credits'] is not None and decimal.Decimal(q['credits'])<decimal.Decimal(credit):reason='credit_balance_changed';stop=True;break
-      n=free.pop(0);take=min(batch_size,max_done-sum(x['usable'] for x in done.values())-sum(len(v[1]) for v in active.values()));batch=pending[:take];pending=pending[take:];f=pool.submit(run_batch,batch,homes[n],work,number);active[f]=(n,batch);number+=1;attempts+=1
+      n=free.pop(0);take=min(batch_size,max_done-sum(x['usable'] for x in done.values())-sum(len(v[1]) for v in active.values()),100-sum(len(v[1]) for v in active.values()));batch=pending[:take];pending=pending[take:];f=pool.submit(run_batch,batch,homes[n],work,number);active[f]=(n,batch);number+=1;attempts+=1;peak_active=max(peak_active,len(active));peak_articles=max(peak_articles,sum(len(v[1]) for v in active.values()))
      if not active:break
-     ready,_=concurrent.futures.wait(active,timeout=30,return_when=concurrent.futures.FIRST_COMPLETED)
+     ready,_=concurrent.futures.wait(active,timeout=2 if workers>8 else 30,return_when=concurrent.futures.FIRST_COMPLETED)
      if not ready:
-      print(json.dumps({'heartbeat':stamp(),'completed':len(done),'in_flight':len(active),'pending':len(pending)}),flush=True);continue
+      print(json.dumps({'heartbeat':stamp(),'completed':len(done),'in_flight':len(active),'pending':len(pending),'requested_workers':workers,'active_workers':len(active),'worker_cap':worker_cap(workers,time.monotonic()-started),'in_flight_articles':sum(len(v[1]) for v in active.values()),'memory_available_bytes':memory_available,**throughput(completion_events,started)}),flush=True);continue
      for f in ready:
       n,batch=active.pop(f);free.append(n)
       try:record,items=f.result()
       except Exception as e:record={'at':stamp(),'batch_error':type(e).__name__,'requested':len(batch),'returned_valid':0,'ids':[x['id'] for x in batch]};items=[]
+      requested_completed+=len(batch);accepted=sum(x['usable'] for x in items);new_usable+=accepted;completion_events.append((time.monotonic(),accepted));
+      while completion_events and completion_events[0][0]<time.monotonic()-60:completion_events.popleft()
       append('batches.jsonl',record)
       for item in items:done[item['id']]=item;append('results.jsonl',item)
       failures=failures+1 if not items else 0
-      q=monitor.read();record.update(total_completed=len(done),total_usable=sum(x['usable'] for x in done.values()),quota=q);print(json.dumps(record,ensure_ascii=False),flush=True)
-      state={'at':stamp(),'completed':len(done),'usable':sum(x['usable'] for x in done.values()),'target':max_done,'quota':q,'pending':len(SAMPLES)-len(done),'last_batch':record};(OUT/'state.json').write_text(json.dumps(state,ensure_ascii=False,indent=2))
+      try:q=monitor.read(max_age=2 if workers>8 else 0)
+      except Exception:q=None;reason='quota_unavailable';stop=True
+      record.update(total_completed=len(done),total_usable=sum(x['usable'] for x in done.values()),quota=q,requested_workers=workers,active_workers=len(active),worker_cap=worker_cap(workers,time.monotonic()-started),in_flight_articles=sum(len(v[1]) for v in active.values()),usable_success_rate=round(new_usable/requested_completed,4) if requested_completed else 0,**throughput(completion_events,started));print(json.dumps(record,ensure_ascii=False),flush=True)
+      state={'at':stamp(),'completed':len(done),'usable':sum(x['usable'] for x in done.values()),'target':max_done,'quota':q,'pending':len(SAMPLES)-len(done),'last_batch':record,'requested_workers':workers,'active_workers':len(active),'peak_active_workers':peak_active,'in_flight_articles':sum(len(v[1]) for v in active.values()),'peak_in_flight_articles':peak_articles,**throughput(completion_events,started)};(OUT/'state.json').write_text(json.dumps(state,ensure_ascii=False,indent=2))
       if failures>=3 or record.get('rerouted') or record.get('tools_used'):reason='provider_failure';stop=True
       # Missing outputs are retained as failed queue items; no blind retries.
     if sum(x['usable'] for x in done.values())<max_done and not pending and reason=='completed':reason='failed_items_pending'
-   final=monitor.read();summary={'at':stamp(),'reason':reason,'completed':len(done),'usable':sum(x['usable'] for x in done.values()),'candidate_count':len(SAMPLES),'anchor_used_percent':ANCHOR,'final_quota':final,'model':MODEL,'reasoning':'low','input_chars':sum(len(x['text']) for x in SAMPLES),'body_chars':sum(len(x['body']) for x in done.values()),'note':'Official same-account quota; no API key or production writes. Integer quota readings are not exact fractional cost.'};(OUT/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2));print(json.dumps(summary,ensure_ascii=False),flush=True)
+   try:final=monitor.read()
+   except Exception:final=None;reason='quota_unavailable'
+   summary={'at':stamp(),'reason':reason,'completed':len(done),'usable':sum(x['usable'] for x in done.values()),'candidate_count':len(SAMPLES),'requested_workers':workers,'batch_size':batch_size,'peak_active_workers':peak_active,'peak_in_flight_articles':peak_articles,'new_usable_this_run':new_usable,'requested_completed_this_run':requested_completed,'usable_success_rate':round(new_usable/requested_completed,4) if requested_completed else 0,**throughput(completion_events,started),'anchor_used_percent':ANCHOR,'final_quota':final,'model':MODEL,'reasoning':'low','input_chars':sum(len(x['text']) for x in SAMPLES),'body_chars':sum(len(x['body']) for x in done.values()),'note':'Official same-account quota; no API key or production writes. Integer quota readings are not exact fractional cost.'};(OUT/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2));print(json.dumps(summary,ensure_ascii=False),flush=True)
   finally:monitor.close()
 if __name__=='__main__':raise SystemExit(main() or 0)

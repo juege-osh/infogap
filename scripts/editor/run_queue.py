@@ -6,8 +6,10 @@ STATE=ROOT/'state/official-editor'
 CST=datetime.timezone(datetime.timedelta(hours=8))
 def day():return datetime.datetime.now(CST).date().isoformat()
 def main():
- ap=argparse.ArgumentParser();ap.add_argument('--run-dir',required=True);ap.add_argument('--target',type=int,required=True);ap.add_argument('--workers',type=int,default=4);a=ap.parse_args()
- if not 1<=a.target<=1000 or not 1<=a.workers<=8:ap.error('target 1..1000; workers 1..8')
+ ap=argparse.ArgumentParser();ap.add_argument('--run-dir',required=True);ap.add_argument('--target',type=int,required=True);ap.add_argument('--workers',type=int,default=4);ap.add_argument('--batch-size',type=int,default=10);a=ap.parse_args()
+ if not 1<=a.target<=1000:ap.error('target 1..1000')
+ if not 1<=a.workers<=100 or not 1<=a.batch_size<=10:ap.error('workers 1..100; batch-size 1..10')
+ if a.workers>8 and a.batch_size!=1:ap.error('workers >8 requires explicit --batch-size 1; at most100 articles in flight')
  out=pathlib.Path(a.run_dir).resolve();assert (out/'eligible-source-corpus.json').is_file()
  STATE.mkdir(parents=True,exist_ok=True);os.chmod(STATE,0o700)
  with (STATE/'editor.lock').open('a') as lock:
@@ -30,7 +32,7 @@ def main():
   from budget import BudgetGuard
   ok,reason=BudgetGuard.from_record(json.loads(ledger.read_text()),day=day()).check(initial)
   if not ok:print(json.dumps({'stopped':reason}));return 2
-  env=dict(os.environ,INFOGAP_DAY_ANCHOR=str(baseline['used_percent']),INFOGAP_MAX_DONE=str(a.target),INFOGAP_WORKERS=str(a.workers),INFOGAP_BATCH_SIZE='10')
+  env=dict(os.environ,INFOGAP_DAY_ANCHOR=str(baseline['used_percent']),INFOGAP_MAX_DONE=str(a.target),INFOGAP_WORKERS=str(a.workers),INFOGAP_BATCH_SIZE=str(a.batch_size))
   with (out/'run.log').open('a') as log:r=subprocess.run([os.sys.executable,str(pathlib.Path(__file__).with_name('runner.py'))],env=env,stdout=log,stderr=subprocess.STDOUT)
   if (out/'summary.json').exists():print((out/'summary.json').read_text())
   return r.returncode
