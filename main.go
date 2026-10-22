@@ -27,7 +27,7 @@ import (
 )
 
 const founderEmail = "1402272093@qq.com"
-const version = "1.0.9"
+const version = "1.0.10"
 
 var buildCommit = "dev"
 
@@ -333,6 +333,7 @@ func (s *server) routes() http.Handler {
 	m.HandleFunc("POST /api/admin/users/{id}", s.manageUser)
 	m.HandleFunc("POST /api/admin/sources/{id}", s.manageSource)
 	s.billingRoutes(m)
+	s.feedbackRoutes(m)
 	m.HandleFunc("POST /api/admin/test-mode", s.setTestMode)
 	m.HandleFunc("POST /api/admin/diagnostics", s.diagnostics)
 	m.HandleFunc("DELETE /api/admin/test-mode", s.exitTestMode)
@@ -430,6 +431,10 @@ func newServer(dbPath, web, origin string) (*server, error) {
 		return nil, err
 	}
 	s := &server{db: db, web: web, origin: origin, secure: strings.HasPrefix(origin, "https://"), otpSecret: token(32), now: time.Now}
+	if err = initFeedback(s.db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	s.mailer = sendCodeMail
 	if err = InitBilling(s); err != nil {
 		db.Close()
