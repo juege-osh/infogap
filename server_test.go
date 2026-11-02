@@ -104,11 +104,11 @@ func TestFounderRequiresVerifiedEmail(t *testing.T) {
 	w = request(s, "POST", "/api/auth/verify", map[string]string{"email": founderEmail, "code": code, "username": "站长"}, "")
 	mustStatus(t, w, 400)
 }
-func TestInviteRequiredAndSingleUse(t *testing.T) {
+func TestOptionalInviteAndSingleUse(t *testing.T) {
 	s := testServer(t)
 	codes := map[string]string{}
 	s.mailer = func(_ context.Context, email, c string) error { codes[email] = c; return nil }
-	w := request(s, "POST", "/api/auth/code", map[string]string{"email": "one@example.org"}, "")
+	w := request(s, "POST", "/api/auth/code", map[string]string{"email": "one@example.org", "invite": "INVALID"}, "")
 	mustStatus(t, w, 403)
 	_, e := s.db.Exec("INSERT INTO invites(code,max_uses,expires_at,created_at) VALUES('ABC',1,?,?)", stamp(s.now().Add(time.Hour)), stamp(s.now()))
 	if e != nil {

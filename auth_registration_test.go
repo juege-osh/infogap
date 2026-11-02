@@ -90,9 +90,9 @@ func TestVerifiedRegistrationAutomaticallyLogsInWithSecureCookie(t *testing.T) {
 				t.Fatal("incorrect verification created a session")
 			}
 			if tc.role == "member" {
-				res, _ = authHTTP(t, client, host.URL, "/api/auth/verify", map[string]string{"email": tc.email, "code": code, "username": "新成员"})
+				res, _ = authHTTP(t, client, host.URL, "/api/auth/verify", map[string]string{"email": tc.email, "code": code, "username": "新成员", "invite": "INVALID"})
 				if res.StatusCode != 403 || len(res.Cookies()) != 0 {
-					t.Fatal("registration bypassed the required invite")
+					t.Fatal("invalid supplied invitation was accepted")
 				}
 			}
 			res, user = authHTTP(t, client, host.URL, "/api/auth/verify", map[string]string{"email": tc.email, "code": code, "username": tc.username, "invite": tc.invite})

@@ -59,7 +59,7 @@ func (s *server) authCode(w http.ResponseWriter, r *http.Request) {
 		fail(w, 403, "账号已停用")
 		return
 	}
-	if id == 0 && in.Email != founderEmail {
+	if id == 0 && in.Email != founderEmail && in.Invite != "" {
 		var n int
 		_ = s.db.QueryRow("SELECT COUNT(*) FROM invites WHERE code=? AND "+usableInviteSQL, in.Invite, stamp(s.now())).Scan(&n)
 		if n == 0 {
@@ -153,7 +153,7 @@ func (s *server) authVerify(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if in.Username == "" {
-			fail(w, 400, "此邮箱尚未注册，请切换“受邀加入”并填写用户名和邀请码")
+			fail(w, 400, "此邮箱尚未注册，请切换“免费注册”并填写用户名")
 			return
 		}
 		if utf8.RuneCountInString(in.Username) < 2 || utf8.RuneCountInString(in.Username) > 24 || strings.ContainsAny(in.Username, "\r\n\t<>\x00") {
@@ -161,7 +161,7 @@ func (s *server) authVerify(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var inviteID int64
-		if in.Email != founderEmail {
+		if in.Email != founderEmail && in.Invite != "" {
 			res, e := tx.Exec("UPDATE invites SET uses=uses+1 WHERE code=? AND "+usableInviteSQL, in.Invite, stamp(now))
 			if e != nil {
 				fail(w, 500, "加入失败")
@@ -187,6 +187,15 @@ func (s *server) authVerify(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		uid, _ := res.LastInsertId()
+		if role == "member" && in.Invite == "" {
+			if _, e = tx.Exec("UPDATE users SET credits=credits+100 WHERE id=?", uid); e == nil {
+				_, e = tx.Exec("INSERT INTO ledger(user_id,kind,amount,created_at,note) VALUES(?,'registration_gift',100,?,?)", uid, stamp(now), "自助注册赠送100积分")
+			}
+			if e != nil {
+				fail(w, 500, "加入失败")
+				return
+			}
+		}
 		err = grantInviteCampaign(tx, inviteID, uid, in.Email, now)
 		if err != nil {
 			fail(w, 500, "加入失败")

@@ -125,7 +125,7 @@ func (s *server) diagnostics(w http.ResponseWriter, r *http.Request) {
 		}
 		if in.Group == "all" || in.Group == "auth" {
 			add("未登录与普通用户后台拦截", do("GET", "/api/admin/overview", "", nil).Code == 401 && do("GET", "/api/admin/overview", memberCookie, nil).Code == 403, "匿名请求需登录，普通用户不能进入管理后台")
-			add("邀请制注册入口", do("POST", "/api/auth/code", "", map[string]any{"email": "new@example.invalid"}).Code == 403, "没有邀请码的新邮箱不能获取注册验证码")
+			add("自助注册入口", do("POST", "/api/auth/code", "", map[string]any{"email": "open@example.invalid"}).Code == 200, "没有邀请码的新邮箱可以获取注册验证码")
 			_, err = test.db.Exec("INSERT INTO invites(code,max_uses,expires_at,created_at) VALUES('DIAGNOSTIC',1,?,?)", stamp(s.now().Add(time.Hour)), stamp(s.now()))
 			out := do("POST", "/api/auth/code", "", map[string]any{"email": "new@example.invalid", "invite": "DIAGNOSTIC"})
 			verify := do("POST", "/api/auth/verify", "", map[string]any{"email": "new@example.invalid", "invite": "DIAGNOSTIC", "username": "模拟注册成员", "code": code})
